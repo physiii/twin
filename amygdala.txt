@@ -1,0 +1,25 @@
+I want to adjust the lights.
+I need to change the room temperature.
+I want to get a drink.
+I need to have a snack.
+I want to send a message.
+I need to make a quick call.
+I want to write something down.
+I need to check for notifications.
+I want to adjust the volume.
+I need to lock the doors.
+I want to play some music.
+I need to set a reminder.
+I want to pause the movie.
+I need to skip to the next song.
+I want to start the playlist.
+I need to mute the sound.
+I want to turn on the TV.
+I need to change the channel.
+I want to search for a show.
+I need to adjust the screen brightness.
+I want to change the video time.
+I want to change the size of the video player.
+I want to take a screenshot.
+I need to capture what's happening on the display.
+Hey, Computer!

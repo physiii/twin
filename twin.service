@@ -1,0 +1,22 @@
+[Unit]
+Description=Twin Script Service
+After=multi-user.target
+Wants=graphical.target
+
+[Service]
+Type=simple
+User=andy
+Group=andy
+ExecStart=/home/andy/venv/bin/python /media/mass/scripts/twin/twin.py -e --local-embed --local-inference --silent
+WorkingDirectory=/media/mass/scripts/twin
+Environment="DISPLAY=:0"
+Environment="XAUTHORITY=/home/andy/.Xauthority"
+Environment="PULSE_SERVER=unix:/run/user/1000/pulse/native"
+Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"
+Environment="OPENAI_API_KEY=your_openai_api_key"
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=graphical.target

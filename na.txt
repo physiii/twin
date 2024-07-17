@@ -1,0 +1,13 @@
+pactl set-sink-volume @DEFAULT_SINK@ +10%  # Increase system volume by 10%
+pactl set-sink-volume @DEFAULT_SINK@ -10%  # Decrease system volume by 10%
+playerctl position 10-                     # Go back or backward by 10 seconds in the current media or video
+playerctl position 10+                     # Go forward by 10 seconds in the current media or video
+playerctl position 0                       # Reset media position to the beginning, effectively restarting the video
+playerctl play                             # Start or resume playback of the current media
+playerctl pause                            # Pause the current media playback
+xdotool key f                              # Send 'f' key to toggle fullscreen mode for the active window
+playerctl metadata                         # Show metadata of the currently playing media
+sudo apt update                            # Update package lists from repositories
+sudo apt upgrade -y                        # Upgrade all installed packages to their latest versions without prompting
+gnome-screenshot                           # Take a screenshot of the entire desktop
+

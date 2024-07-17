@@ -1,0 +1,22 @@
+# Ignore all CSV files except base_truth.csv
+*.csv
+!base_truth.csv
+
+# Ignore hidden files
+.*
+!.gitignore
+
+# Ignore temporary CSV files
+*.csv#
+
+# Ignore all log files
+*.log
+
+# Ignore the samples folder
+samples/
+
+# Ignore Python cache directories
+__pycache__/
+
+# Ignore the virtual environment folder
+venv/
