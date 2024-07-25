@@ -11,15 +11,22 @@ I need to lock the doors.
 I want to play some music.
 I need to set a reminder.
 I want to pause the movie.
+I want to to watch or play a movie.
+I want to to watch or play a show.
+I want to go back in the video
+I want to go forward in the video
 I need to skip to the next song.
 I want to start the playlist.
 I need to mute the sound.
-I want to turn on the TV.
 I need to change the channel.
 I want to search for a show.
 I need to adjust the screen brightness.
 I want to change the video time.
 I want to change the size of the video player.
 I want to take a screenshot.
+I want to scroll the window up or down.
+I want to swipe left or right on the screen.
+I want to spread the windows apart on the screen.
 I need to capture what's happening on the display.
+I want to go to a specific website.
 Hey, Computer!

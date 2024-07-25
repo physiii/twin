@@ -5,9 +5,16 @@ playerctl position 10+                     # Go forward by 10 seconds in the cur
 playerctl position 0                       # Reset media position to the beginning, effectively restarting the video
 playerctl play                             # Start or resume playback of the current media
 playerctl pause                            # Pause the current media playback
-xdotool key f                              # Send 'f' key to toggle fullscreen mode for the active window
+xdotool key F11                            # Send 'F11' key to toggle fullscreen mode for the active window
+xdotool key Page_Up                        # Scroll up an entire page in the active window
+xdotool key Page_Down                      # Scroll down an entire page in the active window
 playerctl metadata                         # Show metadata of the currently playing media
 sudo apt update                            # Update package lists from repositories
 sudo apt upgrade -y                        # Upgrade all installed packages to their latest versions without prompting
 gnome-screenshot                           # Take a screenshot of the entire desktop
+xdotool key ctrl+alt+Left                  # Switch to the workspace on the left
+xdotool key ctrl+alt+Right                 # Switch to the workspace on the right
+xdotool key Super_L                        # Spread the windows by system (Super) key
+xdg-open http://www.example.com            # Open the specified URL with the default web browser
+echo "Your note here" >> /home/andy/Documents/notes.txt  # Record a note to the file located in ~/Documents/notes.txt
 

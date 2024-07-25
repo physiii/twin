@@ -1,0 +1,12 @@
+nltk
+openai
+fuzzywuzzy
+sentence_transformers
+pymilvus
+faster_whisper
+aiohttp
+requests
+sounddevice
+numpy
+torch
+

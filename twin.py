@@ -153,7 +153,7 @@ async def run_search(text, collection_name):
             logger.error(f"Error in Milvus search: {str(e)}")
             result = []
     else:
-        search_command = f'python /media/mass/scripts/vectorstore/search.py "{text}" --collection {collection_name}'
+        search_command = f'python /media/mass/scripts/vectorstore/search.py "{text}" --collection {collection_name} --ip-address {MILVUS_HOST}'
         try:
             proc = await asyncio.create_subprocess_shell(
                 search_command,
@@ -183,7 +183,18 @@ async def execute_commands(commands):
                 message = command[5:].strip()
                 if (message.startswith('"') and message.endswith('"')) or (message.startswith("'") and message.endswith("'")):
                     message = message[1:-1]
-                print(f"[Output] {get_timestamp()} {message}")
+                full_command = f'echo "{message}" >> /home/andy/Documents/notes.txt'
+                proc = await asyncio.create_subprocess_shell(
+                    full_command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await proc.communicate()
+                if proc.returncode == 0:
+                    print(f"[Executed] {get_timestamp()} Command: {full_command}")
+                else:
+                    logger.error(f"Command failed: {full_command}")
+                    logger.error(f"Error message: {stderr.decode()}")
             elif command.lower().startswith('i played') or command.lower().startswith('playing'):
                 print(f"[Simulated] {get_timestamp()} {command}")
             else:

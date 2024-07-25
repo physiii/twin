@@ -11,7 +11,7 @@ logger = logging.getLogger("twin")
 GPT4O_API_URL = "https://api.openai.com/v1/chat/completions"
 GPT4O_API_KEY = os.environ.get("OPENAI_API_KEY")
 
-OLLAMA_MODEL = "llama3"  # Set the model name here
+OLLAMA_MODEL = "llama3.1"  # Set the model name here
 
 def clean_gpt_response(raw_response):
     if raw_response.startswith('```json') and raw_response.endswith('```'):
