@@ -19,6 +19,8 @@ from sentence_transformers import SentenceTransformer
 from fuzzywuzzy import fuzz
 from prompt import SYSTEM_PROMPT, PROMPT
 from argparse import ArgumentParser
+import os
+import subprocess
 
 # Import inference functions
 from inference import gpt4o_inference, ollama_inference, clean_gpt_response
@@ -52,7 +54,7 @@ RISK_THRESHOLD = 0.2
 
 # New constants for extended history
 HISTORY_BUFFER_SIZE = 5  # Number of recent transcriptions to keep in history
-HISTORY_MAX_CHARS = 200  # Maximum number of characters to send to the LLM
+HISTORY_MAX_CHARS = 400  # Maximum number of characters to send to the LLM
 
 # Audio parameters
 CHANNELS = 1
@@ -198,12 +200,40 @@ async def execute_commands(commands):
             elif command.lower().startswith('i played') or command.lower().startswith('playing'):
                 print(f"[Simulated] {get_timestamp()} {command}")
             else:
-                args = shlex.split(command)
-                proc = await asyncio.create_subprocess_exec(
-                    *args,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
+                # Detect the current display
+                display = ":0"  # Default to :0 if we can't detect it
+                try:
+                    result = subprocess.run(['who'], capture_output=True, text=True)
+                    for line in result.stdout.split('\n'):
+                        if '(:' in line:
+                            display = f":{line.split('(:')[-1].split(')')[0]}"
+                            break
+                except Exception as e:
+                    logger.error(f"Error detecting display: {str(e)}")
+
+                # Set the DISPLAY environment variable
+                env = os.environ.copy()
+                env['DISPLAY'] = display
+
+                if command.startswith('xdotool'):
+                    # For xdotool commands, we need to run them in a shell with the correct DISPLAY
+                    full_command = f"DISPLAY={display} {command}"
+                    proc = await asyncio.create_subprocess_shell(
+                        full_command,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        env=env
+                    )
+                else:
+                    # For other commands, we can use create_subprocess_exec with the updated environment
+                    args = shlex.split(command)
+                    proc = await asyncio.create_subprocess_exec(
+                        *args,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        env=env
+                    )
+                
                 stdout, stderr = await proc.communicate()
                 if proc.returncode == 0:
                     print(f"[Executed] {get_timestamp()} Command: {command}")
