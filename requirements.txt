@@ -1,3 +1,6 @@
+numpy
+wavio
+pulsectl
 nltk
 openai
 fuzzywuzzy

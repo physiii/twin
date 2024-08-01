@@ -76,6 +76,7 @@ parser.add_argument('--local-embed', action='store_true', help="Use gte-Qwen2-1.
 parser.add_argument('--local-inference', action='store_true', help="Use local Ollama for inference")
 parser.add_argument('-s', '--silent', action='store_true', help="Disable TTS playback")
 parser.add_argument('--store-ip', default="localhost", help="Milvus host IP address (default: localhost)")
+parser.add_argument('--source', default=None, help="Manually set the audio source (index or name)")
 args = parser.parse_args()
 
 # Milvus configuration
@@ -348,7 +349,21 @@ async def process_buffer():
 
 async def main():
     log_available_audio_devices()
-    input_device = sd.default.device[0]
+    devices = sd.query_devices()
+    input_device = None
+    
+    if args.source:
+        if args.source.isdigit():
+            input_device = int(args.source)
+        else:
+            for i, device in enumerate(devices):
+                if args.source.lower() in device['name'].lower():
+                    input_device = i
+                    break
+        if input_device is None:
+            logger.error(f"Specified audio source '{args.source}' not found.")
+            return
+    
     try:
         with sd.InputStream(callback=audio_callback, channels=CHANNELS, samplerate=SAMPLE_RATE, 
                             blocksize=CHUNK_SIZE, device=input_device, dtype='float32'):
