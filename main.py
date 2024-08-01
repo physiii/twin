@@ -10,12 +10,10 @@ import torch
 import time
 from faster_whisper import WhisperModel
 from pymilvus import connections, Collection
-from sentence_transformers import SentenceTransformer
-from prompt import SYSTEM_PROMPT, PROMPT
 from argparse import ArgumentParser
 
 # Import inference functions
-from inference import gpt4o_inference, ollama_inference, clean_gpt_response
+from inference import run_inference
 
 # Import audio utility functions
 from audio import log_available_audio_devices, audio_callback, play_tts_response
@@ -24,7 +22,7 @@ from audio import log_available_audio_devices, audio_callback, play_tts_response
 from command import execute_commands, is_in_cooldown
 
 # Import search utility functions
-from search import is_similar, run_search
+from search import is_similar, run_search, initialize_local_embedding_model
 
 # Logging configuration
 logging.basicConfig(level=logging.INFO)
@@ -39,7 +37,7 @@ for name in logging.root.manager.loggerDict:
 logging.getLogger("faster_whisper").setLevel(logging.ERROR)
 
 # Parameters
-MODEL_SIZE = "small.en"
+MODEL_SIZE = "medium.en"
 DEVICE_TYPE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE_TYPE == "cuda" else "float32"
 SAMPLE_RATE = 16000
@@ -73,19 +71,20 @@ if DEVICE_TYPE == "cuda":
 # Parse command-line arguments
 parser = ArgumentParser(description="Live transcription with flexible inference and embedding options.")
 parser.add_argument('-e', '--execute', action='store_true', help="Execute the commands returned by the inference model")
-parser.add_argument('--local-embed', action='store_true', help="Use gte-Qwen2-1.5B-instruct for local embeddings")
-parser.add_argument('--local-inference', action='store_true', help="Use local Ollama for inference")
+parser.add_argument('--local-embed', nargs='?', const='local', help="Use local embeddings. Optionally specify an IP for remote embeddings.")
+parser.add_argument('--local-inference', nargs='?', const='127.0.0.1:11434', help="Use local Ollama for inference. Optionally specify an IP:PORT for remote Ollama.")
 parser.add_argument('-s', '--silent', action='store_true', help="Disable TTS playback")
 parser.add_argument('--store-ip', default="localhost", help="Milvus host IP address (default: localhost)")
 parser.add_argument('--source', default=None, help="Manually set the audio source (index or name)")
 args = parser.parse_args()
 
+# Initialize local embedding model if needed
+if args.local_embed == 'local':
+    initialize_local_embedding_model()
+
 # Milvus configuration
 MILVUS_HOST = args.store_ip
 MILVUS_PORT = "19530"
-
-# Initialize local embedding model if --local-embed is set
-local_embedding_model = SentenceTransformer("Alibaba-NLP/gte-Qwen2-1.5B-instruct", trust_remote_code=True) if args.local_embed else None
 
 # Connect to Milvus
 connections.connect("default", host=MILVUS_HOST, port=MILVUS_PORT)
@@ -114,7 +113,7 @@ async def process_buffer():
         return
 
     transcription_start = time.time()
-    segments, _ = model.transcribe(audio_data, language=LANGUAGE, suppress_tokens=[2, 3], suppress_blank=True, condition_on_previous_text=False, no_speech_threshold=0.5)
+    segments, _ = model.transcribe(audio_data, language=LANGUAGE, suppress_tokens=[2, 3], suppress_blank=True, condition_on_previous_text=True, no_speech_threshold=0.5)
     transcription_time = time.time() - transcription_start
     
     for segment in segments:
@@ -126,9 +125,9 @@ async def process_buffer():
         history_buffer.append(text)
         logger.info(f"[Source] {get_timestamp()} {text}")
 
-        amygdala_results, amygdala_time = await run_search(text, 'amygdala', args, local_embedding_model, MILVUS_HOST)
-        accumbens_results, accumbens_time = await run_search(text, 'na', args, local_embedding_model, MILVUS_HOST)
-        hippocampus_results, hippocampus_time = await run_search(text, 'hippocampus', args, local_embedding_model, MILVUS_HOST)
+        amygdala_results, amygdala_time = await run_search(text, 'amygdala', args, milvus_host=MILVUS_HOST)
+        accumbens_results, accumbens_time = await run_search(text, 'na', args, milvus_host=MILVUS_HOST)
+        hippocampus_results, hippocampus_time = await run_search(text, 'hippocampus', args, milvus_host=MILVUS_HOST)
         
         relevant_amygdala = [r for r in amygdala_results if r[1] < AMY_DISTANCE_THRESHOLD]
         relevant_accumbens = [r for r in accumbens_results if r[1] < NA_DISTANCE_THRESHOLD]
@@ -154,10 +153,14 @@ async def process_buffer():
                 history_text = get_history_text()
                 
                 if args.local_inference:
-                    inference_response, inference_time = await ollama_inference(history_text, combined_commands)
-                    inference_type = "Ollama"
+                    if args.local_inference == '127.0.0.1:11434':
+                        inference_response, inference_time = await run_inference(history_text, combined_commands, use_local_inference=True)
+                        inference_type = "Local Ollama"
+                    else:
+                        inference_response, inference_time = await run_inference(history_text, combined_commands, use_local_inference=True, ollama_ip=args.local_inference)
+                        inference_type = f"Remote Ollama ({args.local_inference})"
                 else:
-                    inference_response, inference_time = await gpt4o_inference(history_text, combined_commands)
+                    inference_response, inference_time = await run_inference(history_text, combined_commands)
                     inference_type = "GPT-4o"
                 
                 audio_buffer.clear()
@@ -206,7 +209,9 @@ async def main():
                             channels=CHANNELS, samplerate=SAMPLE_RATE, 
                             blocksize=CHUNK_SIZE, device=input_device, dtype='float32'):
             print(f"{get_timestamp()} Streaming started... Press Ctrl+C to stop.")
-            print(f"Using {'local' if args.local_embed else 'remote'} embeddings and {'local Ollama' if args.local_inference else 'GPT-4o'} for inference.")
+            embed_type = "local" if args.local_embed == 'local' else f"remote ({args.local_embed})" if args.local_embed else "remote"
+            inference_type = "local Ollama" if args.local_inference == '127.0.0.1:11434' else f"remote Ollama ({args.local_inference})" if args.local_inference else "GPT-4o"
+            print(f"Using {embed_type} embeddings and {inference_type} for inference.")
             print(f"TTS playback is {'disabled' if args.silent else 'enabled'}.")
             
             while True:

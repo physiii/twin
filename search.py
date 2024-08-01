@@ -3,10 +3,20 @@ import time
 import json
 import asyncio
 import logging
+import aiohttp
 from fuzzywuzzy import fuzz
 from pymilvus import Collection
+from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger("twin")
+
+# Initialize the local embedding model globally
+local_embedding_model = None
+
+def initialize_local_embedding_model():
+    global local_embedding_model
+    if local_embedding_model is None:
+        local_embedding_model = SentenceTransformer("Alibaba-NLP/gte-Qwen2-1.5B-instruct", trust_remote_code=True)
 
 def clean_text(text):
     text = re.sub(r'\[.*?\]|\(.*?\)|\*.*?\*|\{.*?\}', '', text)
@@ -21,10 +31,30 @@ def is_similar(text, buffer, similarity_threshold):
             return True
     return False
 
-async def run_search(text, collection_name, args, local_embedding_model=None, milvus_host=None):
+async def fetch_remote_embedding(text, ip):
+    url = f"http://{ip}:8000/embed"
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json={"text": text}) as response:
+            if response.status == 200:
+                data = await response.json()
+                return data['embedding']
+            else:
+                logger.error(f"Failed to fetch remote embedding. Status: {response.status}")
+                return None
+
+async def run_search(text, collection_name, args, milvus_host=None):
+    global local_embedding_model
     start_time = time.time()
     if args.local_embed:
-        query_embedding = local_embedding_model.encode([text], prompt_name="query")[0].tolist()
+        if args.local_embed == 'local':
+            if local_embedding_model is None:
+                initialize_local_embedding_model()
+            query_embedding = local_embedding_model.encode([text], prompt_name="query")[0].tolist()
+        else:
+            query_embedding = await fetch_remote_embedding(text, args.local_embed)
+            if query_embedding is None:
+                return [], time.time() - start_time
+
         collection = Collection(collection_name)
         search_params = {
             "metric_type": "L2",

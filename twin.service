@@ -7,7 +7,7 @@ Wants=graphical.target
 Type=simple
 User=andy
 Group=andy
-ExecStart=/home/andy/venv/bin/python /media/mass/scripts/twin/twin.py --source pulse -e --local-embed --local-inference --silent
+ExecStart=/home/andy/venv/bin/python /media/mass/scripts/twin/main.py --source pulse -e --local-embed --local-inference --silent
 WorkingDirectory=/media/mass/scripts/twin
 Environment="DISPLAY=:0"
 Environment="XAUTHORITY=/home/andy/.Xauthority"
