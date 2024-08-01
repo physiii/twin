@@ -22,7 +22,7 @@ from audio import log_available_audio_devices, audio_callback, play_tts_response
 from command import execute_commands, is_in_cooldown
 
 # Import search utility functions
-from search import is_similar, run_search, initialize_local_embedding_model
+from search import is_similar, run_search
 
 # Logging configuration
 logging.basicConfig(level=logging.INFO)
@@ -37,7 +37,6 @@ for name in logging.root.manager.loggerDict:
 logging.getLogger("faster_whisper").setLevel(logging.ERROR)
 
 # Parameters
-MODEL_SIZE = "medium.en"
 DEVICE_TYPE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE_TYPE == "cuda" else "float32"
 SAMPLE_RATE = 16000
@@ -63,11 +62,6 @@ CHUNK_SIZE = 1024
 TTS_PYTHON_PATH = "/home/andy/venvs/tts-env/bin/python"
 TTS_SCRIPT_PATH = "/home/andy/scripts/tts/tts.py"
 
-# Initialize models
-model = WhisperModel(MODEL_SIZE, device=DEVICE_TYPE, compute_type=COMPUTE_TYPE)
-if DEVICE_TYPE == "cuda":
-    torch.cuda.synchronize()
-
 # Parse command-line arguments
 parser = ArgumentParser(description="Live transcription with flexible inference and embedding options.")
 parser.add_argument('-e', '--execute', action='store_true', help="Execute the commands returned by the inference model")
@@ -76,11 +70,13 @@ parser.add_argument('--local-inference', nargs='?', const='127.0.0.1:11434', hel
 parser.add_argument('-s', '--silent', action='store_true', help="Disable TTS playback")
 parser.add_argument('--store-ip', default="localhost", help="Milvus host IP address (default: localhost)")
 parser.add_argument('--source', default=None, help="Manually set the audio source (index or name)")
+parser.add_argument('--whisper-model', default="tiny.en", help="Specify the Whisper model size (default: tiny.en)")
 args = parser.parse_args()
 
-# Initialize local embedding model if needed
-if args.local_embed == 'local':
-    initialize_local_embedding_model()
+# Initialize models
+model = WhisperModel(args.whisper_model, device=DEVICE_TYPE, compute_type=COMPUTE_TYPE)
+if DEVICE_TYPE == "cuda":
+    torch.cuda.synchronize()
 
 # Milvus configuration
 MILVUS_HOST = args.store_ip
@@ -213,6 +209,7 @@ async def main():
             inference_type = "local Ollama" if args.local_inference == '127.0.0.1:11434' else f"remote Ollama ({args.local_inference})" if args.local_inference else "GPT-4o"
             print(f"Using {embed_type} embeddings and {inference_type} for inference.")
             print(f"TTS playback is {'disabled' if args.silent else 'enabled'}.")
+            print(f"Using Whisper model: {args.whisper_model}")
             
             while True:
                 await process_buffer()

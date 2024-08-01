@@ -66,6 +66,7 @@ async def ollama_inference(source_text, accumbens_commands, previous_response=No
         return await local_ollama_inference(prompt)
 
 async def local_ollama_inference(prompt):
+    start_time = time.time()  # Add this line
     try:
         proc = await asyncio.create_subprocess_exec(
             'ollama', 'run', OLLAMA_MODEL, prompt,

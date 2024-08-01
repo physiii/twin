@@ -13,11 +13,6 @@ logger = logging.getLogger("twin")
 # Initialize the local embedding model globally
 local_embedding_model = None
 
-def initialize_local_embedding_model():
-    global local_embedding_model
-    if local_embedding_model is None:
-        local_embedding_model = SentenceTransformer("Alibaba-NLP/gte-Qwen2-1.5B-instruct", trust_remote_code=True)
-
 def clean_text(text):
     text = re.sub(r'\[.*?\]|\(.*?\)|\*.*?\*|\{.*?\}', '', text)
     return text.strip()
@@ -46,14 +41,9 @@ async def run_search(text, collection_name, args, milvus_host=None):
     global local_embedding_model
     start_time = time.time()
     if args.local_embed:
-        if args.local_embed == 'local':
-            if local_embedding_model is None:
-                initialize_local_embedding_model()
-            query_embedding = local_embedding_model.encode([text], prompt_name="query")[0].tolist()
-        else:
-            query_embedding = await fetch_remote_embedding(text, args.local_embed)
-            if query_embedding is None:
-                return [], time.time() - start_time
+        query_embedding = await fetch_remote_embedding(text, args.local_embed)
+        if query_embedding is None:
+            return [], time.time() - start_time
 
         collection = Collection(collection_name)
         search_params = {
