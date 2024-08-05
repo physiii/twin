@@ -3,6 +3,7 @@ from collections import deque
 from datetime import datetime
 import asyncio
 import queue
+import re
 import numpy as np
 import sounddevice as sd
 import json
@@ -102,6 +103,11 @@ def get_history_text():
         history_text = history_text[history_text.index(' ')+1:]
     return history_text
 
+def clean_transcription(text):
+    text = re.sub(r'\[.*?\]', '', text)
+    text = re.sub(r'\(.*?\)', '', text)
+    return text.strip()
+
 async def process_buffer():
     process_start = time.time()
     audio_data = np.array(list(audio_buffer), dtype=np.float32)
@@ -113,7 +119,7 @@ async def process_buffer():
     transcription_time = time.time() - transcription_start
     
     for segment in segments:
-        text = segment.text.strip()
+        text = clean_transcription(segment.text.strip())
         if not text or is_similar(text, recent_transcriptions, SIMILARITY_THRESHOLD):
             continue
 
