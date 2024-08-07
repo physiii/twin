@@ -17,4 +17,8 @@ xdotool key ctrl+alt+Right                 # Switch to the workspace on the righ
 xdotool key Super_L                        # Spread the windows by system (Super) key
 xdg-open http://www.example.com            # Open the specified URL with the default web browser
 echo "Your note here" >> /home/andy/Documents/notes.txt  # Record a note to the file located in ~/Documents/notes.txt
-
+echo "I made a mistake" >> /home/andy/Documents/mistakes.txt  # Record a mistake to the file located in ~/Documents/mistakes.txt
+echo "I think I did something wrong." >> /home/andy/Documents/mistakes.txt  # Record an error to the file located in ~/Documents/mistakes.txt
+echo "I made an error." >> /home/andy/Documents/mistakes.txt  # Record an error to the file located in ~/Documents/mistakes.txt
+echo "I didn't mean that." >> /home/andy/Documents/mistakes.txt  # Record a wrong action to the file located in ~/Documents/mistakes.txt
+echo "That's not what I wanted." >> /home/andy/Documents/mistakes.txt  # Record an incorrect action to the file located in ~/Documents/mistakes.txt

@@ -18,8 +18,10 @@ User voice input: '{source_text}'
 Objectives:
 1. Understand the user's intent.
 2. Suggest the simplest, safest command from 'accumbens' or standard Ubuntu commands.
-3. If unsure or the command is risky, use 'echo' to request clarification or provide a safe response.
-4. Ensure high-risk commands (e.g., sudo commands) require explicit user confirmation.
+3. If the user expresses corrections or negations (e.g., "No", "That's wrong", "I didn't mean that"), prioritize those and request clarification.
+4. If unsure or the command is risky, use 'echo' to request clarification or provide a safe response.
+5. Ensure high-risk commands (e.g., sudo commands) require explicit user confirmation.
+6. Record any mistakes or errors mentioned by the user to /home/andy/Documents/mistakes.txt.
 
 Response format:
 {{
@@ -50,6 +52,22 @@ Examples:
 {{
     "commands": ["echo \\"Cannot control lights.\\""],
     "response": "No direct light control.",
+    "risk": 0.0,
+    "confirmed": false
+}}
+
+4. Voice input: "No, that's wrong. Turn the volume down."
+{{
+    "commands": ["echo \\"Please confirm: Turn the volume down?\\""],
+    "response": "Requesting clarification.",
+    "risk": 0.2,
+    "confirmed": false
+}}
+
+5. Voice input: "I made a mistake"
+{{
+    "commands": ["echo \\"I made a mistake\\" >> /home/andy/Documents/mistakes.txt"],
+    "response": "Recording mistake.",
     "risk": 0.0,
     "confirmed": false
 }}

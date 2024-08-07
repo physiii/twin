@@ -32,7 +32,9 @@ async def execute_commands(commands, cooldown_period):
                 message = command[5:].strip()
                 if (message.startswith('"') and message.endswith('"')) or (message.startswith("'") and message.endswith("'")):
                     message = message[1:-1]
-                full_command = f'echo "{message}" >> /home/andy/Documents/notes.txt'
+                # Properly escape single quotes for bash shell
+                message = message.replace("'", "'\\''")
+                full_command = f'echo \'{message}\' >> /home/andy/Documents/notes.txt'
                 proc = await asyncio.create_subprocess_shell(
                     full_command,
                     stdout=asyncio.subprocess.PIPE,
