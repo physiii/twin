@@ -12,20 +12,11 @@ import time
 from faster_whisper import WhisperModel
 from pymilvus import connections, Collection
 from argparse import ArgumentParser
-
-# Import inference functions
 from inference import run_inference
-
-# Import audio utility functions
 from audio import log_available_audio_devices, audio_callback, play_tts_response
-
-# Import command utility functions
 from command import execute_commands, is_in_cooldown
-
-# Import search utility functions
 from search import is_similar, run_search
 
-# Logging configuration
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("twin")
 
@@ -52,8 +43,8 @@ COOLDOWN_PERIOD = 0  # seconds
 RISK_THRESHOLD = 0.2
 
 # New constants for extended history
-HISTORY_BUFFER_SIZE = 5  # Number of recent transcriptions to keep in history
-HISTORY_MAX_CHARS = 400  # Maximum number of characters to send to the LLM
+HISTORY_BUFFER_SIZE = 10  # Number of recent transcriptions to keep in history
+HISTORY_MAX_CHARS = 4000  # Maximum number of characters to send to the LLM
 
 # Audio parameters
 CHANNELS = 1
@@ -93,7 +84,11 @@ recent_transcriptions = deque(maxlen=10)  # Buffer for recent transcriptions
 history_buffer = deque(maxlen=HISTORY_BUFFER_SIZE)  # New buffer for extended history
 
 def get_timestamp():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    USE_TIMESTAMP = False
+    if USE_TIMESTAMP:
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    else:
+        return None
 
 def get_history_text():
     history_text = " ".join(history_buffer)
