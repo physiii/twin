@@ -2,13 +2,13 @@ import logging
 from collections import deque
 from datetime import datetime
 import asyncio
-import queue  # Ensure queue is imported
+import queue
 import re
 import numpy as np
 import sounddevice as sd
 import json
 import torch
-import time  # Import the time module
+import time
 from faster_whisper import WhisperModel
 from pymilvus import connections
 from argparse import ArgumentParser
@@ -16,6 +16,7 @@ from inference import run_inference
 from audio import log_available_audio_devices, audio_callback, play_tts_response
 from command import execute_commands, is_in_cooldown
 from search import is_similar, run_search
+from transcribe import transcribe_audio, init_transcription_model
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
@@ -64,12 +65,8 @@ parser.add_argument('-s', '--silent', action='store_true', help="Disable TTS pla
 parser.add_argument('--store-ip', default="localhost", help="Milvus host IP address (default: localhost)")
 parser.add_argument('--source', default=None, help="Manually set the audio source (index or name)")
 parser.add_argument('--whisper-model', default="tiny.en", help="Specify the Whisper model size (default: tiny.en)")
+parser.add_argument('--remote-transcribe', help="Use remote transcription. Specify the URL for the transcription server.")
 args = parser.parse_args()
-
-# Initialize the transcription model
-model = WhisperModel(args.whisper_model, device=DEVICE_TYPE, compute_type=COMPUTE_TYPE)
-if DEVICE_TYPE == "cuda":
-    torch.cuda.synchronize()
 
 # Milvus configuration
 MILVUS_HOST = args.store_ip
@@ -99,28 +96,25 @@ def get_history_text():
         history_text = history_text[history_text.index(' ') + 1:]
     return history_text
 
-def clean_transcription(text):
-    text = re.sub(r'\[.*?\]', '', text)
-    text = re.sub(r'\(.*?\)', '', text)
-    return text.strip()
-
-async def process_buffer():
+async def process_buffer(transcription_model, use_remote_transcription, remote_transcribe_url):
     process_start = time.time()
     audio_data = np.array(list(audio_buffer), dtype=np.float32)
     if len(audio_data) == 0:
         return
 
-    transcription_start = time.time()
-    segments, _ = model.transcribe(audio_data, language=LANGUAGE, suppress_tokens=[2, 3], suppress_blank=True, condition_on_previous_text=True, no_speech_threshold=0.5)
-    transcription_time = time.time() - transcription_start
+    transcriptions, transcription_time = await transcribe_audio(
+        model=transcription_model,
+        audio_data=audio_data,
+        language=LANGUAGE,
+        similarity_threshold=SIMILARITY_THRESHOLD,
+        recent_transcriptions=recent_transcriptions,
+        history_buffer=history_buffer,
+        history_max_chars=HISTORY_MAX_CHARS,
+        use_remote=use_remote_transcription,
+        remote_url=remote_transcribe_url
+    )
     
-    for segment in segments:
-        text = clean_transcription(segment.text.strip())
-        if not text or is_similar(text, recent_transcriptions, SIMILARITY_THRESHOLD):
-            continue
-
-        recent_transcriptions.append(text)
-        history_buffer.append(text)
+    for text in transcriptions:
         logger.info(f"[Source] {get_timestamp()} {text}")
 
         amygdala_results, amygdala_time = await run_search(text, 'amygdala', args, milvus_host=MILVUS_HOST)
@@ -202,6 +196,9 @@ async def main():
             logger.error(f"Specified audio source '{args.source}' not found.")
             return
     
+    use_remote_transcription = args.remote_transcribe is not None
+    transcription_model = None if use_remote_transcription else init_transcription_model(args.whisper_model, DEVICE_TYPE, COMPUTE_TYPE)
+
     try:
         with sd.InputStream(callback=lambda indata, frames, time, status: audio_callback(indata, frames, time, status, audio_queue, audio_buffer),
                             channels=CHANNELS, samplerate=SAMPLE_RATE, 
@@ -209,12 +206,12 @@ async def main():
             print(f"{get_timestamp()} Streaming started... Press Ctrl+C to stop.")
             embed_type = "local" if args.local_embed == 'local' else f"remote ({args.local_embed})" if args.local_embed else "remote"
             inference_type = "local Ollama" if args.local_inference == '127.0.0.1:11434' else f"remote Ollama ({args.local_inference})" if args.local_inference else "GPT-4o"
-            print(f"Using {embed_type} embeddings and {inference_type} for inference.")
+            transcription_type = f"remote ({args.remote_transcribe})" if use_remote_transcription else f"local ({args.whisper_model})"
+            print(f"Using {embed_type} embeddings, {inference_type} for inference, and {transcription_type} for transcription.")
             print(f"TTS playback is {'disabled' if args.silent else 'enabled'}.")
-            print(f"Using Whisper model: {args.whisper_model}")
             
             while True:
-                await process_buffer()
+                await process_buffer(transcription_model, use_remote_transcription, args.remote_transcribe)
                 await asyncio.sleep(0.1)
     except KeyboardInterrupt:
         print(f"{get_timestamp()} Streaming stopped.")
