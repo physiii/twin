@@ -2,49 +2,50 @@ import logging
 from collections import deque
 from datetime import datetime
 import asyncio
-import queue
+import queue  # Ensure queue is imported
 import re
 import numpy as np
 import sounddevice as sd
 import json
 import torch
-import time
+import time  # Import the time module
 from faster_whisper import WhisperModel
-from pymilvus import connections, Collection
+from pymilvus import connections
 from argparse import ArgumentParser
 from inference import run_inference
 from audio import log_available_audio_devices, audio_callback, play_tts_response
 from command import execute_commands, is_in_cooldown
 from search import is_similar, run_search
 
+# Initialize logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("twin")
 
-# Suppress logging from all libraries
+# Suppress logging from other libraries
 for name in logging.root.manager.loggerDict:
-    logging.info("log name: " + name)
     if name != "twin":
         logging.getLogger(name).setLevel(logging.ERROR)
 
+# Suppress Whisper logs to ERROR level
 logging.getLogger("faster_whisper").setLevel(logging.ERROR)
 
-# Parameters
+# Parameters and configurations
 DEVICE_TYPE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE_TYPE == "cuda" else "float32"
 SAMPLE_RATE = 16000
 BUFFER_DURATION = 6  # seconds
 BUFFER_SIZE = SAMPLE_RATE * BUFFER_DURATION
 LANGUAGE = "en"
-AMY_DISTANCE_THRESHOLD = 1.0
-NA_DISTANCE_THRESHOLD = 1.5
-HIP_DISTANCE_THRESHOLD = 1.1
 SIMILARITY_THRESHOLD = 85  # Similarity threshold for fuzzy matching
 COOLDOWN_PERIOD = 0  # seconds
 RISK_THRESHOLD = 0.2
-
-# New constants for extended history
 HISTORY_BUFFER_SIZE = 10  # Number of recent transcriptions to keep in history
 HISTORY_MAX_CHARS = 4000  # Maximum number of characters to send to the LLM
+
+# Define the missing constants
+AMY_DISTANCE_THRESHOLD = 1.0
+NA_DISTANCE_THRESHOLD = 1.5
+HIP_DISTANCE_THRESHOLD = 1.1
 
 # Audio parameters
 CHANNELS = 1
@@ -65,7 +66,7 @@ parser.add_argument('--source', default=None, help="Manually set the audio sourc
 parser.add_argument('--whisper-model', default="tiny.en", help="Specify the Whisper model size (default: tiny.en)")
 args = parser.parse_args()
 
-# Initialize models
+# Initialize the transcription model
 model = WhisperModel(args.whisper_model, device=DEVICE_TYPE, compute_type=COMPUTE_TYPE)
 if DEVICE_TYPE == "cuda":
     torch.cuda.synchronize()
@@ -79,9 +80,9 @@ connections.connect("default", host=MILVUS_HOST, port=MILVUS_PORT)
 
 # Circular buffer for audio data
 audio_buffer = deque(maxlen=BUFFER_SIZE)
-audio_queue = queue.Queue()
+audio_queue = queue.Queue()  # Initialize audio_queue
 recent_transcriptions = deque(maxlen=10)  # Buffer for recent transcriptions
-history_buffer = deque(maxlen=HISTORY_BUFFER_SIZE)  # New buffer for extended history
+history_buffer = deque(maxlen=HISTORY_BUFFER_SIZE)  # Buffer for extended history
 
 def get_timestamp():
     USE_TIMESTAMP = False
@@ -95,7 +96,7 @@ def get_history_text():
     if len(history_text) > HISTORY_MAX_CHARS:
         history_text = history_text[-HISTORY_MAX_CHARS:]
         # Trim to the nearest word
-        history_text = history_text[history_text.index(' ')+1:]
+        history_text = history_text[history_text.index(' ') + 1:]
     return history_text
 
 def clean_transcription(text):
@@ -165,7 +166,7 @@ async def process_buffer():
                     audio_queue.queue.clear()
 
                 if inference_response:
-                    logger.info(f"[{inference_type}] {get_timestamp()} {json.dumps(inference_response, indent=2)}")
+                    logger.info(f"[{inference_type}] {json.dumps(inference_response, indent=2)}")
                     
                     execution_time = 0
                     if args.execute:
