@@ -32,7 +32,7 @@ logging.getLogger("faster_whisper").setLevel(logging.ERROR)
 DEVICE_TYPE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE_TYPE == "cuda" else "float32"
 SAMPLE_RATE = 16000
-BUFFER_DURATION = 8  # seconds
+BUFFER_DURATION = 6  # seconds
 BUFFER_SIZE = SAMPLE_RATE * BUFFER_DURATION
 LANGUAGE = "en"
 AMY_DISTANCE_THRESHOLD = 1.0
