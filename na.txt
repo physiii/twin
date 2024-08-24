@@ -1,24 +1,16 @@
-pactl set-sink-volume @DEFAULT_SINK@ +10%  # Increase system volume by 10%
-pactl set-sink-volume @DEFAULT_SINK@ -10%  # Decrease system volume by 10%
-playerctl position 10-                     # Go back or backward by 10 seconds in the current media or video
-playerctl position 10+                     # Go forward by 10 seconds in the current media or video
-playerctl position 0                       # Reset media position to the beginning, effectively restarting the video
-playerctl play                             # Start or resume playback of the current media
-playerctl pause                            # Pause the current media playback
-xdotool key F11                            # Send 'F11' key to toggle fullscreen mode for the active window
-xdotool key Page_Up                        # Scroll up an entire page in the active window
-xdotool key Page_Down                      # Scroll down an entire page in the active window
-playerctl metadata                         # Show metadata of the currently playing media
-sudo apt update                            # Update package lists from repositories
-sudo apt upgrade -y                        # Upgrade all installed packages to their latest versions without prompting
-gnome-screenshot                           # Take a screenshot of the entire desktop
-xdotool key ctrl+alt+Left                  # Switch to the workspace on the left
-xdotool key ctrl+alt+Right                 # Switch to the workspace on the right
-xdotool key Super_L                        # Spread the windows by system (Super) key
-xdg-open http://www.example.com            # Open the specified URL with the default web browser
-echo "Your note here" >> /home/andy/Documents/notes.txt  # Record a note to the file located in ~/Documents/notes.txt
-echo "I made a mistake" >> /home/andy/Documents/mistakes.txt  # Record a mistake to the file located in ~/Documents/mistakes.txt
-echo "I think I did something wrong." >> /home/andy/Documents/mistakes.txt  # Record an error to the file located in ~/Documents/mistakes.txt
-echo "I made an error." >> /home/andy/Documents/mistakes.txt  # Record an error to the file located in ~/Documents/mistakes.txt
-echo "I didn't mean that." >> /home/andy/Documents/mistakes.txt  # Record a wrong action to the file located in ~/Documents/mistakes.txt
-echo "That's not what I wanted." >> /home/andy/Documents/mistakes.txt  # Record an incorrect action to the file located in ~/Documents/mistakes.txt
+pactl set-sink-volume @DEFAULT_SINK@ +15%  # Increase system volume by <percent>%
+pactl set-sink-volume @DEFAULT_SINK@ -15%  # Decrease system volume by <percent>%
+pactl set-sink-mute @DEFAULT_SINK@ toggle         # Toggle mute/unmute on the default sink (mute/unmute system volume)
+playerctl position <seconds>-                     # Go back or backward by <seconds> in the current media or video
+playerctl position <seconds>+                     # Go forward by <seconds> in the current media or video
+playerctl play                                    # Start or resume playback of the current media
+playerctl pause                                   # Pause the current media playback
+xdotool key F11                                   # Send 'F11' key to toggle fullscreen mode for the active window
+xdotool key Page_Up                               # Scroll up an entire page in the active window
+xdotool key Page_Down                             # Scroll down an entire page in the active window
+sudo apt update                                   # Update package lists from repositories
+sudo apt upgrade -y                               # Upgrade all installed packages to their latest versions without prompting
+gnome-screenshot                                  # Take a screenshot of the entire desktop
+xdotool key ctrl+alt+Left                         # Switch to the workspace on the left
+xdotool key ctrl+alt+Right                        # Switch to the workspace on the right
+xdotool key Super_L                               # Spread the windows by system (Super) key

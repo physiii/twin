@@ -12,11 +12,12 @@ import time
 from faster_whisper import WhisperModel
 from pymilvus import connections
 from argparse import ArgumentParser
-from inference import run_inference
+from generator import run_inference
 from audio import log_available_audio_devices, audio_callback, play_tts_response
-from command import execute_commands, is_in_cooldown
+from action import execute_commands, is_in_cooldown
 from search import is_similar, run_search
 from transcribe import transcribe_audio, init_transcription_model
+from reflection import reflect
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
@@ -30,23 +31,26 @@ for name in logging.root.manager.loggerDict:
 # Suppress Whisper logs to ERROR level
 logging.getLogger("faster_whisper").setLevel(logging.ERROR)
 
-# Parameters and configurations
+# Configuration Parameters
+REFLECTION_INTERVAL = 300  # Set the reflection interval in seconds (e.g., 300 seconds = 5 minutes)
 DEVICE_TYPE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE_TYPE == "cuda" else "float32"
 SAMPLE_RATE = 16000
 BUFFER_DURATION = 6  # seconds
-BUFFER_SIZE = SAMPLE_RATE * BUFFER_DURATION
+BUFFER_SIZE = SAMPLE_RATE * BUFFER_DURATION  # Ensure BUFFER_SIZE is defined here
 LANGUAGE = "en"
 SIMILARITY_THRESHOLD = 85  # Similarity threshold for fuzzy matching
 COOLDOWN_PERIOD = 0  # seconds
-RISK_THRESHOLD = 0.2
+RISK_THRESHOLD = 0.5  # Risk threshold for command execution
 HISTORY_BUFFER_SIZE = 10  # Number of recent transcriptions to keep in history
 HISTORY_MAX_CHARS = 4000  # Maximum number of characters to send to the LLM
+WAKE_TIMEOUT = 10  # Time in seconds for how long the system remains "awake" after detecting the wake phrase
 
 # Define the missing constants
 AMY_DISTANCE_THRESHOLD = 1.0
 NA_DISTANCE_THRESHOLD = 1.5
 HIP_DISTANCE_THRESHOLD = 1.1
+WAKE_DISTANCE_THRESHOLD = 0.9  # Specific threshold for wake phrase detection
 
 # Audio parameters
 CHANNELS = 1
@@ -80,13 +84,17 @@ audio_buffer = deque(maxlen=BUFFER_SIZE)
 audio_queue = queue.Queue()  # Initialize audio_queue
 recent_transcriptions = deque(maxlen=10)  # Buffer for recent transcriptions
 history_buffer = deque(maxlen=HISTORY_BUFFER_SIZE)  # Buffer for extended history
+running_log = []  # Running log to capture all events
+
+is_awake = False
+wake_start_time = None
 
 def get_timestamp():
     USE_TIMESTAMP = False
     if USE_TIMESTAMP:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     else:
-        return None
+        return ""
 
 def get_history_text():
     history_text = " ".join(history_buffer)
@@ -97,6 +105,7 @@ def get_history_text():
     return history_text
 
 async def process_buffer(transcription_model, use_remote_transcription, remote_transcribe_url):
+    global is_awake, wake_start_time
     process_start = time.time()
     audio_data = np.array(list(audio_buffer), dtype=np.float32)
     if len(audio_data) == 0:
@@ -116,74 +125,108 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
     
     for text in transcriptions:
         logger.info(f"[Source] {get_timestamp()} {text}")
+        running_log.append(f"{get_timestamp()} [Transcription] {text}")
 
-        amygdala_results, amygdala_time = await run_search(text, 'amygdala', args, milvus_host=MILVUS_HOST)
-        accumbens_results, accumbens_time = await run_search(text, 'na', args, milvus_host=MILVUS_HOST)
-        hippocampus_results, hippocampus_time = await run_search(text, 'hippocampus', args, milvus_host=MILVUS_HOST)
+        # Wake Phrase Search
+        wake_results, wake_time = await run_search(text, 'wake', args, milvus_host=MILVUS_HOST)
+        relevant_wake = [r for r in wake_results if r[1] < WAKE_DISTANCE_THRESHOLD]
         
-        relevant_amygdala = [r for r in amygdala_results if r[1] < AMY_DISTANCE_THRESHOLD]
-        relevant_accumbens = [r for r in accumbens_results if r[1] < NA_DISTANCE_THRESHOLD]
-        relevant_hippocampus = [r for r in hippocampus_results if r[1] < HIP_DISTANCE_THRESHOLD]
-        
-        if relevant_amygdala:
-            for snippet, distance in relevant_amygdala:
-                logger.info(f"[Amygdala] {get_timestamp()} {snippet} | {distance}")
-            
-            if relevant_accumbens or relevant_hippocampus:
-                accumbens_commands = [snippet for snippet, _ in relevant_accumbens]
-                hippocampus_commands = [snippet for snippet, _ in relevant_hippocampus]
-                
-                for snippet, distance in relevant_accumbens:
-                    logger.info(f"[Accumbens] {get_timestamp()} {snippet} | {distance}")
-                
-                for snippet, distance in relevant_hippocampus:
-                    logger.info(f"[Hippocampus] {get_timestamp()} {snippet} | {distance}")
-                
-                combined_commands = accumbens_commands
-                
-                # Use the extended history for inference
-                history_text = get_history_text()
-                
-                if args.local_inference:
-                    if args.local_inference == '127.0.0.1:11434':
-                        inference_response, inference_time = await run_inference(history_text, combined_commands, use_local_inference=True)
-                        inference_type = "Local Ollama"
-                    else:
-                        inference_response, inference_time = await run_inference(history_text, combined_commands, use_local_inference=True, ollama_ip=args.local_inference)
-                        inference_type = f"Remote Ollama ({args.local_inference})"
-                else:
-                    inference_response, inference_time = await run_inference(history_text, combined_commands)
-                    inference_type = "GPT-4o"
-                
-                audio_buffer.clear()
-                with audio_queue.mutex:
-                    audio_queue.queue.clear()
+        if relevant_wake:
+            is_awake = True
+            wake_start_time = time.time()
+            logger.info(f"[Wake] System awakened by phrase: {relevant_wake[0][0]}")
 
-                if inference_response:
-                    logger.info(f"[{inference_type}] {json.dumps(inference_response, indent=2)}")
-                    
-                    execution_time = 0
-                    if args.execute:
-                        if inference_response['risk'] <= RISK_THRESHOLD or (inference_response['risk'] > RISK_THRESHOLD and inference_response.get('confirmed', False)):
-                            execution_time = await execute_commands(inference_response['commands'], COOLDOWN_PERIOD)
+        if is_awake and (time.time() - wake_start_time) <= WAKE_TIMEOUT:
+            amygdala_results, amygdala_time = await run_search(text, 'amygdala', args, milvus_host=MILVUS_HOST)
+            accumbens_results, accumbens_time = await run_search(text, 'na', args, milvus_host=MILVUS_HOST)
+            hippocampus_results, hippocampus_time = await run_search(text, 'hippocampus', args, milvus_host=MILVUS_HOST)
+
+            relevant_amygdala = [r for r in amygdala_results if r[1] < AMY_DISTANCE_THRESHOLD]
+            relevant_accumbens = [r for r in accumbens_results if r[1] < NA_DISTANCE_THRESHOLD]
+            relevant_hippocampus = [r for r in hippocampus_results if r[1] < HIP_DISTANCE_THRESHOLD]
+
+            if relevant_amygdala:
+                # Extend wake time when relevant commands are found
+                wake_start_time = time.time()
+                
+                for snippet, distance in relevant_amygdala:
+                    logger.info(f"[Amygdala] {get_timestamp()} {snippet} | {distance}")
+
+                if relevant_accumbens or relevant_hippocampus:
+                    accumbens_commands = [snippet for snippet, _ in relevant_accumbens]
+                    hippocampus_commands = [snippet for snippet, _ in relevant_hippocampus]
+
+                    for snippet, distance in relevant_accumbens:
+                        logger.info(f"[Accumbens] {get_timestamp()} {snippet} | {distance}")
+
+                    for snippet, distance in relevant_hippocampus:
+                        logger.info(f"[Hippocampus] {get_timestamp()} {snippet} | {distance}")
+
+                    combined_commands = accumbens_commands
+
+                    # Use the extended history for inference
+                    history_text = get_history_text()
+                    prompt_text = f"{get_timestamp()} [Prompt] {history_text}"
+                    running_log.append(prompt_text)
+
+                    if args.local_inference:
+                        if args.local_inference == '127.0.0.1:11434':
+                            inference_response, inference_time = await run_inference(history_text, combined_commands, use_local_inference=True)
+                            inference_type = "Local Ollama"
                         else:
-                            logger.warning(f"[Warning] {get_timestamp()} Commands not executed. Risk: {inference_response['risk']}. Confirmation required.")
-                    
-                    tts_time = await play_tts_response(inference_response['response'], 
-                                                       tts_python_path=TTS_PYTHON_PATH, 
-                                                       tts_script_path=TTS_SCRIPT_PATH, 
-                                                       silent=args.silent)
-                    
-                    total_time = time.time() - process_start
-                    logger.info(f"[Timing] {get_timestamp()} Total: {total_time:.4f}s, Transcription: {transcription_time:.4f}s, Search: {max(amygdala_time, accumbens_time, hippocampus_time):.4f}s, Inference: {inference_time:.4f}s, Execution: {execution_time:.4f}s, TTS: {tts_time:.4f}s")
-                else:
-                    logger.error(f"Unable to get or parse {inference_type} inference.")
+                            inference_response, inference_time = await run_inference(history_text, combined_commands, use_local_inference=True, ollama_ip=args.local_inference)
+                            inference_type = f"Remote Ollama ({args.local_inference})"
+                    else:
+                        inference_response, inference_time = await run_inference(history_text, combined_commands)
+                        inference_type = "GPT-4o"
+
+                    running_log.append(f"{get_timestamp()} [Response] {json.dumps(inference_response, indent=2)}")
+
+                    # Clear the audio buffer after processing
+                    audio_buffer.clear()
+
+                    # Ensure the audio_queue is also cleared
+                    with audio_queue.mutex:
+                        audio_queue.queue.clear()
+
+                    if inference_response:
+                        logger.info(f"[{inference_type}] {json.dumps(inference_response, indent=2)}")
+
+                        execution_time = 0
+                        if args.execute:
+                            if inference_response['risk'] <= RISK_THRESHOLD or (inference_response['risk'] > RISK_THRESHOLD and inference_response.get('confirmed', False)):
+                                execution_time = await execute_commands(inference_response['commands'], COOLDOWN_PERIOD)
+                                running_log.append(f"{get_timestamp()} [Command] {inference_response['commands']}")
+                            else:
+                                logger.warning(f"[Warning] {get_timestamp()} Commands not executed. Risk: {inference_response['risk']}. Confirmation required.")
+
+                        tts_time = await play_tts_response(inference_response['response'], 
+                                                           tts_python_path=TTS_PYTHON_PATH, 
+                                                           tts_script_path=TTS_SCRIPT_PATH, 
+                                                           silent=args.silent)
+
+                        total_time = time.time() - process_start
+                        logger.info(f"[Timing] {get_timestamp()} Total: {total_time:.4f}s, Transcription: {transcription_time:.4f}s, Search: {max(amygdala_time, accumbens_time, hippocampus_time):.4f}s, Inference: {inference_time:.4f}s, Execution: {execution_time:.4f}s, TTS: {tts_time:.4f}s")
+                    else:
+                        logger.error(f"Unable to get or parse {inference_type} inference.")
+        
+        # Reset awake state after timeout
+        if wake_start_time and (time.time() - wake_start_time) > WAKE_TIMEOUT:
+            is_awake = False
+
+async def reflection_loop():
+    while True:
+        await asyncio.sleep(REFLECTION_INTERVAL)
+        if running_log:  # Reflect only if there is something in the log
+            reflection_data = await reflect(running_log)
+            logger.info(f"Reflection report: {json.dumps(reflection_data, indent=2)}")
+            running_log.clear()  # Clear the log after reflection
 
 async def main():
     log_available_audio_devices()
     devices = sd.query_devices()
-    input_device = None
-    
+    input_device = ""
+
     if args.source:
         if args.source.isdigit():
             input_device = int(args.source)
@@ -192,7 +235,7 @@ async def main():
                 if args.source.lower() in device['name'].lower():
                     input_device = i
                     break
-        if input_device is None:
+        if input_device == "":
             logger.error(f"Specified audio source '{args.source}' not found.")
             return
     
@@ -210,6 +253,8 @@ async def main():
             print(f"Using {embed_type} embeddings, {inference_type} for inference, and {transcription_type} for transcription.")
             print(f"TTS playback is {'disabled' if args.silent else 'enabled'}.")
             
+            reflection_task = asyncio.create_task(reflection_loop())
+
             while True:
                 await process_buffer(transcription_model, use_remote_transcription, args.remote_transcribe)
                 await asyncio.sleep(0.1)
