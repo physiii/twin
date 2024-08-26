@@ -45,16 +45,15 @@ RISK_THRESHOLD = 0.5  # Risk threshold for command execution
 HISTORY_BUFFER_SIZE = 10  # Number of recent transcriptions to keep in history
 HISTORY_MAX_CHARS = 4000  # Maximum number of characters to send to the LLM
 WAKE_TIMEOUT = 10  # Time in seconds for how long the system remains "awake" after detecting the wake phrase
+SILENCE_THRESHOLD = 0.005  # Threshold for determining if the audio buffer contains silence
+CHANNELS = 1
+CHUNK_SIZE = 1024
 
 # Define the missing constants
 AMY_DISTANCE_THRESHOLD = 1.0
 NA_DISTANCE_THRESHOLD = 1.5
 HIP_DISTANCE_THRESHOLD = 1.1
 WAKE_DISTANCE_THRESHOLD = 0.9  # Specific threshold for wake phrase detection
-
-# Audio parameters
-CHANNELS = 1
-CHUNK_SIZE = 1024
 
 # TTS configuration
 TTS_PYTHON_PATH = "/home/andy/venvs/tts-env/bin/python"
@@ -104,11 +103,22 @@ def get_history_text():
         history_text = history_text[history_text.index(' ') + 1:]
     return history_text
 
+def calculate_rms(audio_data):
+    """Calculate the Root Mean Square (RMS) of the audio data."""
+    return np.sqrt(np.mean(np.square(audio_data)))
+
 async def process_buffer(transcription_model, use_remote_transcription, remote_transcribe_url):
     global is_awake, wake_start_time
     process_start = time.time()
     audio_data = np.array(list(audio_buffer), dtype=np.float32)
+
     if len(audio_data) == 0:
+        return
+
+    # Calculate RMS to determine if the buffer contains meaningful audio
+    rms = calculate_rms(audio_data)
+
+    if rms < SILENCE_THRESHOLD:
         return
 
     transcriptions, transcription_time = await transcribe_audio(
