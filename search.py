@@ -40,6 +40,7 @@ async def fetch_remote_embedding(text, ip):
 async def run_search(text, collection_name, args, milvus_host=None):
     global local_embedding_model
     start_time = time.time()
+    logger.info(f"Local embedding model: {args.local_embed}")
     if args.local_embed:
         query_embedding = await fetch_remote_embedding(text, args.local_embed)
         if query_embedding is None:
@@ -63,7 +64,8 @@ async def run_search(text, collection_name, args, milvus_host=None):
             logger.error(f"Error in Milvus search: {str(e)}")
             result = []
     else:
-        search_command = f'python /media/mass/scripts/vectorstore/search.py "{text}" --collection {collection_name} --ip-address {milvus_host}'
+        search_command = f'/home/andy/venv/bin/python /media/mass/scripts/vectorstore/search.py "{text}" --collection {collection_name} --ip-address {milvus_host}'
+        logger.info(f"Running search command: {search_command}")
         try:
             proc = await asyncio.create_subprocess_shell(
                 search_command,
