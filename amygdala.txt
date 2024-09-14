@@ -13,6 +13,7 @@ I need to set a reminder.
 I want to pause the movie.
 I want to to watch or play a movie.
 I want to to watch or play a show.
+I want to to watch or play the video.
 I want to go back in the video.
 I want to go forward in the video.
 I need to skip to the next song.
@@ -34,4 +35,3 @@ I think I did something wrong.
 I made an error.
 I didn't mean that.
 That's not what I wanted.
-Hey, Computer!

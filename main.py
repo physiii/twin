@@ -50,10 +50,10 @@ CHANNELS = 1
 CHUNK_SIZE = 1024
 
 # Define the missing constants
-AMY_DISTANCE_THRESHOLD = 1.0
+AMY_DISTANCE_THRESHOLD = 0.7
 NA_DISTANCE_THRESHOLD = 1.5
 HIP_DISTANCE_THRESHOLD = 1.1
-WAKE_DISTANCE_THRESHOLD = 0.9  # Specific threshold for wake phrase detection
+WAKE_DISTANCE_THRESHOLD = 0.65
 
 # TTS configuration
 TTS_PYTHON_PATH = "/home/andy/venvs/tts-env/bin/python"
@@ -155,71 +155,79 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
             relevant_accumbens = [r for r in accumbens_results if r[1] < NA_DISTANCE_THRESHOLD]
             relevant_hippocampus = [r for r in hippocampus_results if r[1] < HIP_DISTANCE_THRESHOLD]
 
-            if relevant_amygdala:
+            if relevant_amygdala and relevant_accumbens:
                 # Extend wake time when relevant commands are found
                 wake_start_time = time.time()
                 
                 for snippet, distance in relevant_amygdala:
                     logger.info(f"[Amygdala] {get_timestamp()} {snippet} | {distance}")
 
-                if relevant_accumbens or relevant_hippocampus:
-                    accumbens_commands = [snippet for snippet, _ in relevant_accumbens]
+                accumbens_commands = [snippet for snippet, _ in relevant_accumbens]
+
+                for snippet, distance in relevant_accumbens:
+                    logger.info(f"[Accumbens] {get_timestamp()} {snippet} | {distance}")
+
+                if relevant_hippocampus:
                     hippocampus_commands = [snippet for snippet, _ in relevant_hippocampus]
-
-                    for snippet, distance in relevant_accumbens:
-                        logger.info(f"[Accumbens] {get_timestamp()} {snippet} | {distance}")
-
                     for snippet, distance in relevant_hippocampus:
                         logger.info(f"[Hippocampus] {get_timestamp()} {snippet} | {distance}")
+                else:
+                    hippocampus_commands = []
 
-                    combined_commands = accumbens_commands
+                combined_commands = accumbens_commands + hippocampus_commands
 
-                    # Use the extended history for inference
-                    history_text = get_history_text()
-                    prompt_text = f"{get_timestamp()} [Prompt] {history_text}"
-                    running_log.append(prompt_text)
+                # Use the extended history for inference
+                history_text = get_history_text()
+                prompt_text = f"{get_timestamp()} [Prompt] {history_text}"
+                running_log.append(prompt_text)
 
-                    if args.local_inference:
-                        if args.local_inference == '127.0.0.1:11434':
-                            inference_response, inference_time = await run_inference(history_text, combined_commands, use_local_inference=True)
-                            inference_type = "Local Ollama"
+                # Inference code...
+                if args.local_inference:
+                    if args.local_inference == '127.0.0.1:11434':
+                        logger.info("Using local Ollama for inference.")
+                        inference_response, inference_time = await run_inference(history_text, combined_commands, use_local_inference=True)
+                        inference_type = "Local Ollama"
+                    else:
+                        logger.info(f"Using remote Ollama for inference: {args.local_inference}")
+                        inference_response, inference_time = await run_inference(history_text, combined_commands, use_local_inference=True, ollama_ip=args.local_inference)
+                        inference_type = f"Remote Ollama ({args.local_inference})"
+                else:
+                    logger.info("Using GPT-4o for inference.")
+                    inference_response, inference_time = await run_inference(history_text, combined_commands)
+                    inference_type = "GPT-4o"
+
+                running_log.append(f"{get_timestamp()} [Response] {json.dumps(inference_response, indent=2)}")
+
+                # Clear the audio buffer after processing
+                audio_buffer.clear()
+
+                # Ensure the audio_queue is also cleared
+                with audio_queue.mutex:
+                    audio_queue.queue.clear()
+
+                if inference_response:
+                    logger.info(f"[{inference_type}] {json.dumps(inference_response, indent=2)}")
+
+                    execution_time = 0
+                    if args.execute:
+                        if inference_response['risk'] <= RISK_THRESHOLD or (inference_response['risk'] > RISK_THRESHOLD and inference_response.get('confirmed', False)):
+                            execution_time = await execute_commands(inference_response['commands'], COOLDOWN_PERIOD)
+                            running_log.append(f"{get_timestamp()} [Command] {inference_response['commands']}")
                         else:
-                            inference_response, inference_time = await run_inference(history_text, combined_commands, use_local_inference=True, ollama_ip=args.local_inference)
-                            inference_type = f"Remote Ollama ({args.local_inference})"
-                    else:
-                        inference_response, inference_time = await run_inference(history_text, combined_commands)
-                        inference_type = "GPT-4o"
+                            logger.warning(f"[Warning] {get_timestamp()} Commands not executed. Risk: {inference_response['risk']}. Confirmation required.")
 
-                    running_log.append(f"{get_timestamp()} [Response] {json.dumps(inference_response, indent=2)}")
+                    tts_time = await play_tts_response(inference_response['response'], 
+                                                       tts_python_path=TTS_PYTHON_PATH, 
+                                                       tts_script_path=TTS_SCRIPT_PATH, 
+                                                       silent=args.silent)
 
-                    # Clear the audio buffer after processing
-                    audio_buffer.clear()
+                    total_time = time.time() - process_start
+                    logger.info(f"[Timing] {get_timestamp()} Total: {total_time:.4f}s, Transcription: {transcription_time:.4f}s, Search: {max(amygdala_time, accumbens_time, hippocampus_time):.4f}s, Inference: {inference_time:.4f}s, Execution: {execution_time:.4f}s, TTS: {tts_time:.4f}s")
+                else:
+                    logger.error(f"Unable to get or parse {inference_type} inference.")
+            else:
+                logger.debug(f"Thresholds not met. Amygdala: {bool(relevant_amygdala)}, Accumbens: {bool(relevant_accumbens)}")
 
-                    # Ensure the audio_queue is also cleared
-                    with audio_queue.mutex:
-                        audio_queue.queue.clear()
-
-                    if inference_response:
-                        logger.info(f"[{inference_type}] {json.dumps(inference_response, indent=2)}")
-
-                        execution_time = 0
-                        if args.execute:
-                            if inference_response['risk'] <= RISK_THRESHOLD or (inference_response['risk'] > RISK_THRESHOLD and inference_response.get('confirmed', False)):
-                                execution_time = await execute_commands(inference_response['commands'], COOLDOWN_PERIOD)
-                                running_log.append(f"{get_timestamp()} [Command] {inference_response['commands']}")
-                            else:
-                                logger.warning(f"[Warning] {get_timestamp()} Commands not executed. Risk: {inference_response['risk']}. Confirmation required.")
-
-                        tts_time = await play_tts_response(inference_response['response'], 
-                                                           tts_python_path=TTS_PYTHON_PATH, 
-                                                           tts_script_path=TTS_SCRIPT_PATH, 
-                                                           silent=args.silent)
-
-                        total_time = time.time() - process_start
-                        logger.info(f"[Timing] {get_timestamp()} Total: {total_time:.4f}s, Transcription: {transcription_time:.4f}s, Search: {max(amygdala_time, accumbens_time, hippocampus_time):.4f}s, Inference: {inference_time:.4f}s, Execution: {execution_time:.4f}s, TTS: {tts_time:.4f}s")
-                    else:
-                        logger.error(f"Unable to get or parse {inference_type} inference.")
-        
         # Reset awake state after timeout
         if wake_start_time and (time.time() - wake_start_time) > WAKE_TIMEOUT:
             is_awake = False
