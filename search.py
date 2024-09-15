@@ -34,8 +34,6 @@ async def run_search(text, collection_name, args, milvus_host=None):
         "collection": collection_name
     }
 
-    logger.info(f"Sending search request to API with payload: {search_payload}")
-
     async with aiohttp.ClientSession() as session:
         try:
             async with session.post(base_url, headers=headers, json=search_payload) as response:
@@ -43,7 +41,6 @@ async def run_search(text, collection_name, args, milvus_host=None):
                     data = await response.json()
                     results = data.get('results', [])
                     result = [(r['text'], round(r['distance'], 2)) for r in results]
-                    logger.info(f"Search results: {result}")
                 else:
                     logger.error(f"Error in search API call. Status code: {response.status}")
                     result = []
