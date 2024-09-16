@@ -2,6 +2,7 @@ import logging
 import sounddevice as sd
 from collections import deque
 import asyncio
+import time  # Make sure to import time if not already imported
 
 logger = logging.getLogger("twin")
 
@@ -11,12 +12,13 @@ def log_available_audio_devices():
     for i, device in enumerate(devices):
         logger.info(f"{i}: {device['name']}, Default Sample Rate: {device['default_samplerate']}, Max Input Channels: {device['max_input_channels']}")
 
-def audio_callback(indata, frames, time, status, audio_queue, audio_buffer):
+def audio_callback(indata, frames, time_info, status, audio_queue, audio_buffer, small_audio_buffer):
     if status:
         logger.error(f"Audio callback error: {status}")
     audio_data = indata[:, 0] if indata.shape[1] > 1 else indata.flatten()
     audio_queue.put(audio_data.copy())
     audio_buffer.extend(audio_data)
+    small_audio_buffer.extend(audio_data)  # Add this line to handle the small buffer
 
 async def play_tts_response(response_text, max_words=15, tts_python_path=None, tts_script_path=None, silent=False):
     if silent:

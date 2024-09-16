@@ -38,7 +38,7 @@ Response format:
 
 ### Examples:
 
-1. **Voice input**: "Play some music and then pause the video"
+1. **Voice input**: "That we will develop yet another generation of tools,  one further polished and adapted to our use cases. Play some music and then pause the video"
 {{
     "commands": ["playerctl pause"],
     "response": "Pausing the video as requested.",
@@ -48,7 +48,7 @@ Response format:
     "intent_reasoning": "The user mentioned 'pause the video', which directly corresponds to the command to pause media playback."
 }}
 
-2. **Voice input**: "go to the left"
+2. **Voice input**: "them, and we will discover those shared edges for their common needs. go to the left"
 {{
     "commands": ["xdotool key ctrl+alt+Left"],
     "response": "Switching to the workspace on the left as requested.",
@@ -56,26 +56,6 @@ Response format:
     "confirmed": false,
     "confidence": 0.9,
     "intent_reasoning": "The user explicitly corrected the command to 'go left', which aligns with switching the workspace to the left."
-}}
-
-4. **Voice input**: "Okay, so I'm going to take it. help me to take that big mirror off. Okay. So I'm going to take... I think they're off. OK. So I'm moving."
-{{
-    "commands": [],
-    "response": "The user's input was unclear and did not specify an actionable command.",
-    "risk": 0,
-    "confirmed": false,
-    "confidence": 0.2,
-    "intent_reasoning": "The input lacked clear directives or commands, so no action was taken."
-}}
-
-5. **Voice input**: "I think it was social medias with X sometimes too. I think I'm probably going to actually correct."
-{{
-    "commands": [],
-    "response": "The user's input was unclear and seemed more like a general statement rather than a command.",
-    "risk": 0,
-    "confirmed": false,
-    "confidence": 0.3,
-    "intent_reasoning": "The input is ambiguous and does not provide a clear actionable command. It appears to be conversational rather than directive."
 }}
 
 Previous response (if any):

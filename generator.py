@@ -73,6 +73,8 @@ async def run_inference(source_text, accumbens_commands, previous_response=None,
         previous_response=previous_response
     )
 
+    logger.info(f"Running inference with prompt: {prompt}")
+
     if use_local_inference:
         if ollama_ip:
             raw_result, duration = await model.remote_ollama_inference(prompt, ollama_ip)
