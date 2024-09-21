@@ -46,8 +46,8 @@ COOLDOWN_PERIOD = 0  # seconds
 RISK_THRESHOLD = 0.5  # Risk threshold for command execution
 HISTORY_BUFFER_SIZE = 10  # Number of recent transcriptions to keep in history
 HISTORY_MAX_CHARS = 4000  # Maximum number of characters to send to the LLM
-WAKE_TIMEOUT = 10  # Time in seconds for how long the system remains "awake" after detecting the wake phrase
-SILENCE_THRESHOLD = 0.0035  # Threshold for determining if the audio buffer contains silence
+WAKE_TIMEOUT = 20  # Time in seconds for how long the system remains "awake" after detecting the wake phrase
+SILENCE_THRESHOLD = 0.0001  # Threshold for determining if the audio buffer contains silence
 CHANNELS = 1
 CHUNK_SIZE = 1024
 
@@ -121,8 +121,8 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
     small_audio_data = np.array(list(small_audio_buffer), dtype=np.float32)
     small_rms = calculate_rms(small_audio_data)
 
-    if small_rms < SILENCE_THRESHOLD:
-        return  # Skip processing if below the silence threshold
+    if small_rms < SILENCE_THRESHOLD and not is_awake:
+        return  # Skip processing if below the silence threshold and not awake
 
     # Now use the larger buffer for transcription
     audio_data = np.array(list(audio_buffer), dtype=np.float32)
@@ -130,6 +130,7 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
         return
 
     rms = calculate_rms(audio_data)
+    
 
     if rms < SILENCE_THRESHOLD:
         return

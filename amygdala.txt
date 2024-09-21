@@ -27,6 +27,7 @@ I want to change the size of the video player.
 I want to take a screenshot.
 I want to scroll the window up or down.
 I want to swipe left or right on the screen.
+I want to go to the left or right workspace.
 I want to spread the windows apart on the screen.
 I need to capture what's happening on the display.
 I want to go to a specific website.

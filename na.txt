@@ -11,6 +11,6 @@ xdotool key Page_Down                             # Scroll down an entire page i
 sudo apt update                                   # Update package lists from repositories
 sudo apt upgrade -y                               # Upgrade all installed packages to their latest versions without prompting
 gnome-screenshot                                  # Take a screenshot of the entire desktop
-xdotool key ctrl+alt+Left                         # Switch to the workspace on the left
-xdotool key ctrl+alt+Right                        # Switch to the workspace on the right
+xdotool key ctrl+alt+Left                         # Go to the left workspace
+xdotool key ctrl+alt+Right                        # Go to the right workspace
 xdotool key Super_L                               # Spread the windows by system (Super) key
