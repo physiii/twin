@@ -46,7 +46,7 @@ COOLDOWN_PERIOD = 0  # seconds
 RISK_THRESHOLD = 0.5  # Risk threshold for command execution
 HISTORY_BUFFER_SIZE = 10  # Number of recent transcriptions to keep in history
 HISTORY_MAX_CHARS = 4000  # Maximum number of characters to send to the LLM
-WAKE_TIMEOUT = 20  # Time in seconds for how long the system remains "awake" after detecting the wake phrase
+WAKE_TIMEOUT = 16  # Time in seconds for how long the system remains "awake" after detecting the wake phrase
 SILENCE_THRESHOLD = 0.0001  # Threshold for determining if the audio buffer contains silence
 CHANNELS = 1
 CHUNK_SIZE = 1024
@@ -55,7 +55,7 @@ CHUNK_SIZE = 1024
 AMY_DISTANCE_THRESHOLD = 0.7
 NA_DISTANCE_THRESHOLD = 1.5
 HIP_DISTANCE_THRESHOLD = 1.1
-WAKE_DISTANCE_THRESHOLD = 0.65
+WAKE_DISTANCE_THRESHOLD = 0.50
 
 # TTS configuration
 TTS_PYTHON_PATH = "/home/andy/venvs/tts-env/bin/python"
@@ -159,18 +159,12 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
         wake_results, wake_time = await run_search(text, 'wake', args, milvus_host=MILVUS_HOST)
         relevant_wake = [r for r in wake_results if r[1] < WAKE_DISTANCE_THRESHOLD]
 
-        if relevant_wake:
+        if relevant_wake and not is_awake:
             is_awake = True
             wake_start_time = time.time()
-            logger.info(f"[Wake] System awakened by phrase: {relevant_wake[0][0]}")
+            logger.info(f"[Wake] System awakened by phrase: {relevant_wake[0][0]} with distance: {relevant_wake[0][1]}")
 
-        if is_awake and ((time.time() - wake_start_time) <= WAKE_TIMEOUT or is_processing):
-            # Extend wake time when processing
-            if not is_processing:
-                wake_start_time = time.time()
-
-            # Start processing
-            is_processing = True
+        if is_awake and ((time.time() - wake_start_time) <= WAKE_TIMEOUT or is_processing):                
 
             # Search
             search_start = time.time()
@@ -185,6 +179,10 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
             relevant_hippocampus = [r for r in hippocampus_results if r[1] < HIP_DISTANCE_THRESHOLD]
 
             if relevant_amygdala and relevant_accumbens:
+                # Start processing
+                wake_start_time = time.time()  # Reset the wake start time
+                is_processing = True
+
                 for snippet, distance in relevant_amygdala:
                     logger.info(f"[Amygdala] {get_timestamp()} {snippet} | {distance}")
 
@@ -273,6 +271,8 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
 
     # Reset awake state after timeout if not processing
     if not is_processing and wake_start_time and (time.time() - wake_start_time) > WAKE_TIMEOUT:
+        if is_awake:
+            logger.info(f"[Wake] System asleep after {WAKE_TIMEOUT} seconds.")
         is_awake = False
 
 async def reflection_loop():
