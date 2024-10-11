@@ -1,5 +1,6 @@
 I want to adjust the lights.
 I need to change the room temperature.
+I need to turn on or off the air conditioning.
 I want to get a drink.
 I need to have a snack.
 I want to send a message.

@@ -13,7 +13,7 @@ from faster_whisper import WhisperModel
 from pymilvus import connections
 from argparse import ArgumentParser
 from generator import run_inference
-from audio import log_available_audio_devices, audio_callback, play_tts_response
+from audio import log_available_audio_devices, audio_callback, play_tts_response, play_wake_sound, play_sleep_sound  # Import play_sleep_sound
 from action import execute_commands, is_in_cooldown
 from search import is_similar, run_search
 from transcribe import transcribe_audio, init_transcription_model
@@ -53,13 +53,17 @@ CHUNK_SIZE = 1024
 
 # Define the missing constants
 AMY_DISTANCE_THRESHOLD = 0.7
-NA_DISTANCE_THRESHOLD = 1.5
+NA_DISTANCE_THRESHOLD = 1.25
 HIP_DISTANCE_THRESHOLD = 1.1
-WAKE_DISTANCE_THRESHOLD = 0.50
+WAKE_DISTANCE_THRESHOLD = 0.60
 
 # TTS configuration
 TTS_PYTHON_PATH = "/home/andy/venvs/tts-env/bin/python"
 TTS_SCRIPT_PATH = "/home/andy/scripts/tts/tts.py"
+
+# **Wake and Sleep Sound Configuration**
+WAKE_SOUND_FILE = "/media/mass/scripts/twin/wake.wav"  # Ensure this file exists
+SLEEP_SOUND_FILE = "/media/mass/scripts/twin/sleep.wav"  # Ensure this file exists
 
 # Parse command-line arguments
 parser = ArgumentParser(description="Live transcription with flexible inference and embedding options.")
@@ -164,6 +168,9 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
             wake_start_time = time.time()
             logger.info(f"[Wake] System awakened by phrase: {relevant_wake[0][0]} with distance: {relevant_wake[0][1]}")
 
+            # **Play Wake Sound Asynchronously**
+            asyncio.create_task(play_wake_sound(WAKE_SOUND_FILE))
+
         if is_awake and ((time.time() - wake_start_time) <= WAKE_TIMEOUT or is_processing):                
 
             # Search
@@ -249,10 +256,10 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
 
                     # TTS
                     tts_start = time.time()
-                    tts_time = await play_tts_response(inference_response['response'],
-                                                       tts_python_path=TTS_PYTHON_PATH,
-                                                       tts_script_path=TTS_SCRIPT_PATH,
-                                                       silent=args.silent)
+                    # tts_time = await play_tts_response(inference_response['response'],
+                    #                                    tts_python_path=TTS_PYTHON_PATH,
+                    #                                    tts_script_path=TTS_SCRIPT_PATH,
+                    #                                    silent=args.silent)
                     tts_end = time.time()
                     tts_time = tts_end - tts_start
 
@@ -273,6 +280,8 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
     if not is_processing and wake_start_time and (time.time() - wake_start_time) > WAKE_TIMEOUT:
         if is_awake:
             logger.info(f"[Wake] System asleep after {WAKE_TIMEOUT} seconds.")
+            # **Play Sleep Sound Asynchronously**
+            asyncio.create_task(play_sleep_sound(SLEEP_SOUND_FILE))
         is_awake = False
 
 async def reflection_loop():

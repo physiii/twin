@@ -2,7 +2,7 @@ import logging
 import sounddevice as sd
 from collections import deque
 import asyncio
-import time  # Make sure to import time if not already imported
+import time
 
 logger = logging.getLogger("twin")
 
@@ -37,3 +37,27 @@ async def play_tts_response(response_text, max_words=15, tts_python_path=None, t
     except Exception as e:
         logger.error(f"Failed to execute TTS script: {e}")
     return time.time() - start_time
+
+# **Function to Play Wake Sound**
+async def play_wake_sound(sound_file):
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            'paplay', sound_file,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        await proc.communicate()
+    except Exception as e:
+        logger.error(f"Failed to play wake sound: {e}")
+
+# **Function to Play Sleep Sound**
+async def play_sleep_sound(sound_file):
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            'paplay', sound_file,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        await proc.communicate()
+    except Exception as e:
+        logger.error(f"Failed to play sleep sound: {e}")
