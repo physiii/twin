@@ -96,6 +96,9 @@ is_awake = False
 wake_start_time = None
 is_processing = False  # Flag to indicate if the system is processing
 
+# Flag to track if any inference was done during the awake period
+did_inference = False
+
 def get_timestamp():
     USE_TIMESTAMP = False
     if USE_TIMESTAMP:
@@ -118,7 +121,7 @@ def calculate_rms(audio_data):
     return np.sqrt(np.mean(np.square(audio_data)))
 
 async def process_buffer(transcription_model, use_remote_transcription, remote_transcribe_url):
-    global is_awake, wake_start_time, is_processing
+    global is_awake, wake_start_time, is_processing, did_inference
     process_start = time.time()
 
     # Convert small buffer to a NumPy array and calculate RMS
@@ -166,6 +169,7 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
         if relevant_wake and not is_awake:
             is_awake = True
             wake_start_time = time.time()
+            did_inference = False  # Reset did_inference when system wakes up
             logger.info(f"[Wake] System awakened by phrase: {relevant_wake[0][0]} with distance: {relevant_wake[0][1]}")
 
             # **Play Wake Sound Asynchronously**
@@ -241,6 +245,7 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
 
                 if inference_response:
                     logger.info(f"[{inference_type}] {json.dumps(inference_response, indent=2)}")
+                    did_inference = True  # Set did_inference to True since an inference was done
 
                     # Execution
                     execution_start = time.time()
@@ -280,9 +285,11 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
     if not is_processing and wake_start_time and (time.time() - wake_start_time) > WAKE_TIMEOUT:
         if is_awake:
             logger.info(f"[Wake] System asleep after {WAKE_TIMEOUT} seconds.")
-            # **Play Sleep Sound Asynchronously**
-            asyncio.create_task(play_sleep_sound(SLEEP_SOUND_FILE))
+            if not did_inference:
+                # **Play Sleep Sound Asynchronously**
+                asyncio.create_task(play_sleep_sound(SLEEP_SOUND_FILE))
         is_awake = False
+        did_inference = False  # Reset did_inference for next awake cycle
 
 async def reflection_loop():
     while True:
