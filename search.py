@@ -1,3 +1,5 @@
+# search.py
+
 import re
 import time
 import json
@@ -21,10 +23,10 @@ def is_similar(text, buffer, similarity_threshold):
             return True
     return False
 
-async def run_search(text, collection_name, args, milvus_host=None):
+async def run_search(text, collection_name, remote_store_url):
     start_time = time.time()
 
-    base_url = 'http://192.168.1.40:5000/vectorstore'
+    base_url = remote_store_url
     headers = {'Content-Type': 'application/json'}
 
     # Prepare the search payload with the query text

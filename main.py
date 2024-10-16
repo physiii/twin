@@ -1,3 +1,5 @@
+# main.py
+
 import logging
 from collections import deque
 from datetime import datetime
@@ -10,10 +12,9 @@ import json
 import torch
 import time
 from faster_whisper import WhisperModel
-from pymilvus import connections
 from argparse import ArgumentParser
 from generator import run_inference
-from audio import log_available_audio_devices, audio_callback, play_tts_response, play_wake_sound, play_sleep_sound  # Import play_sleep_sound
+from audio import log_available_audio_devices, audio_callback, play_tts_response, play_wake_sound, play_sleep_sound
 from action import execute_commands, is_in_cooldown
 from search import is_similar, run_search
 from transcribe import transcribe_audio, init_transcription_model
@@ -53,7 +54,7 @@ CHUNK_SIZE = 1024
 
 # Define the missing constants
 AMY_DISTANCE_THRESHOLD = 0.7
-NA_DISTANCE_THRESHOLD = 1.25
+NA_DISTANCE_THRESHOLD = 1.4
 HIP_DISTANCE_THRESHOLD = 1.1
 WAKE_DISTANCE_THRESHOLD = 0.60
 
@@ -61,28 +62,25 @@ WAKE_DISTANCE_THRESHOLD = 0.60
 TTS_PYTHON_PATH = "/home/andy/venvs/tts-env/bin/python"
 TTS_SCRIPT_PATH = "/home/andy/scripts/tts/tts.py"
 
-# **Wake and Sleep Sound Configuration**
+# Wake and Sleep Sound Configuration
 WAKE_SOUND_FILE = "/media/mass/scripts/twin/wake.wav"  # Ensure this file exists
 SLEEP_SOUND_FILE = "/media/mass/scripts/twin/sleep.wav"  # Ensure this file exists
 
 # Parse command-line arguments
 parser = ArgumentParser(description="Live transcription with flexible inference and embedding options.")
 parser.add_argument('-e', '--execute', action='store_true', help="Execute the commands returned by the inference model")
-parser.add_argument('--local-embed', nargs='?', const='local', help="Use local embeddings. Optionally specify an IP for remote embeddings.")
-parser.add_argument('--local-inference', nargs='?', const='127.0.0.1:11434', help="Use local Ollama for inference. Optionally specify an IP:PORT for remote Ollama.")
+parser.add_argument('--remote-inference', help="Use remote inference. Specify the full URL for the inference server.")
+parser.add_argument('--remote-store', help="Specify the URL for the vector store server.")
 parser.add_argument('-s', '--silent', action='store_true', help="Disable TTS playback")
-parser.add_argument('--store-ip', default="localhost", help="Milvus host IP address (default: localhost)")
 parser.add_argument('--source', default=None, help="Manually set the audio source (index or name)")
 parser.add_argument('--whisper-model', default="tiny.en", help="Specify the Whisper model size (default: tiny.en)")
 parser.add_argument('--remote-transcribe', help="Use remote transcription. Specify the URL for the transcription server.")
 args = parser.parse_args()
 
-# Milvus configuration
-MILVUS_HOST = args.store_ip
-MILVUS_PORT = "19530"
-
-# Connect to Milvus
-connections.connect("default", host=MILVUS_HOST, port=MILVUS_PORT)
+# Store the remote URLs
+REMOTE_STORE_URL = args.remote_store
+REMOTE_INFERENCE_URL = args.remote_inference
+REMOTE_TRANSCRIBE_URL = args.remote_transcribe
 
 # Circular buffer for audio data
 audio_buffer = deque(maxlen=BUFFER_SIZE)
@@ -162,9 +160,15 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
         logger.info(f"[Source] {get_timestamp()} {text}")
         running_log.append(f"{get_timestamp()} [Transcription] {text}")
 
+        # **Modification Start: Use last few words for wake phrase detection**
+        # Extract last N words
+        words = text.strip().split()
+        last_few_words = ' '.join(words[-3:])  # Adjust N as needed (e.g., last 10 words)
+
         # Wake Phrase Search
-        wake_results, wake_time = await run_search(text, 'wake', args, milvus_host=MILVUS_HOST)
+        wake_results, wake_time = await run_search(last_few_words, 'wake', remote_store_url=REMOTE_STORE_URL)
         relevant_wake = [r for r in wake_results if r[1] < WAKE_DISTANCE_THRESHOLD]
+        # **Modification End**
 
         if relevant_wake and not is_awake:
             is_awake = True
@@ -172,16 +176,16 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
             did_inference = False  # Reset did_inference when system wakes up
             logger.info(f"[Wake] System awakened by phrase: {relevant_wake[0][0]} with distance: {relevant_wake[0][1]}")
 
-            # **Play Wake Sound Asynchronously**
+            # Play Wake Sound Asynchronously
             asyncio.create_task(play_wake_sound(WAKE_SOUND_FILE))
 
         if is_awake and ((time.time() - wake_start_time) <= WAKE_TIMEOUT or is_processing):                
 
             # Search
             search_start = time.time()
-            amygdala_results, _ = await run_search(text, 'amygdala', args, milvus_host=MILVUS_HOST)
-            accumbens_results, _ = await run_search(text, 'na', args, milvus_host=MILVUS_HOST)
-            hippocampus_results, _ = await run_search(text, 'hippocampus', args, milvus_host=MILVUS_HOST)
+            amygdala_results, _ = await run_search(text, 'amygdala', remote_store_url=REMOTE_STORE_URL)
+            accumbens_results, _ = await run_search(text, 'na', remote_store_url=REMOTE_STORE_URL)
+            hippocampus_results, _ = await run_search(text, 'hippocampus', remote_store_url=REMOTE_STORE_URL)
             search_end = time.time()
             search_time = search_end - search_start
 
@@ -218,15 +222,10 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
 
                 # Inference
                 inference_start = time.time()
-                if args.local_inference:
-                    if args.local_inference == '127.0.0.1:11434':
-                        logger.info("Using local Ollama for inference.")
-                        inference_response, _ = await run_inference(history_text, combined_commands, use_local_inference=True)
-                        inference_type = "Local Ollama"
-                    else:
-                        logger.info(f"Using remote Ollama for inference: {args.local_inference}")
-                        inference_response, _ = await run_inference(history_text, combined_commands, use_local_inference=True, ollama_ip=args.local_inference)
-                        inference_type = f"Remote Ollama ({args.local_inference})"
+                if REMOTE_INFERENCE_URL:
+                    logger.info(f"Using remote inference: {REMOTE_INFERENCE_URL}")
+                    inference_response, _ = await run_inference(history_text, combined_commands, use_remote_inference=True, inference_url=REMOTE_INFERENCE_URL)
+                    inference_type = f"Remote Inference ({REMOTE_INFERENCE_URL})"
                 else:
                     logger.info("Using GPT-4o for inference.")
                     inference_response, _ = await run_inference(history_text, combined_commands)
@@ -261,6 +260,7 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
 
                     # TTS
                     tts_start = time.time()
+                    # Uncomment the following lines if TTS is required
                     # tts_time = await play_tts_response(inference_response['response'],
                     #                                    tts_python_path=TTS_PYTHON_PATH,
                     #                                    tts_script_path=TTS_SCRIPT_PATH,
@@ -286,7 +286,7 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
         if is_awake:
             logger.info(f"[Wake] System asleep after {WAKE_TIMEOUT} seconds.")
             if not did_inference:
-                # **Play Sleep Sound Asynchronously**
+                # Play Sleep Sound Asynchronously
                 asyncio.create_task(play_sleep_sound(SLEEP_SOUND_FILE))
         is_awake = False
         did_inference = False  # Reset did_inference for next awake cycle
@@ -324,16 +324,15 @@ async def main():
                             channels=CHANNELS, samplerate=SAMPLE_RATE,
                             blocksize=CHUNK_SIZE, device=input_device, dtype='float32'):
             print(f"{get_timestamp()} Streaming started... Press Ctrl+C to stop.")
-            embed_type = "local" if args.local_embed == 'local' else f"remote ({args.local_embed})" if args.local_embed else "remote"
-            inference_type = "local Ollama" if args.local_inference == '127.0.0.1:11434' else f"remote Ollama ({args.local_inference})" if args.local_inference else "GPT-4o"
-            transcription_type = f"remote ({args.remote_transcribe})" if use_remote_transcription else f"local ({args.whisper_model})"
-            print(f"Using {embed_type} embeddings, {inference_type} for inference, and {transcription_type} for transcription.")
+            inference_type = f"remote inference ({REMOTE_INFERENCE_URL})" if REMOTE_INFERENCE_URL else "GPT-4o"
+            transcription_type = f"remote ({REMOTE_TRANSCRIBE_URL})" if use_remote_transcription else f"local ({args.whisper_model})"
+            print(f"Using {inference_type} for inference, and {transcription_type} for transcription.")
             print(f"TTS playback is {'disabled' if args.silent else 'enabled'}.")
 
             reflection_task = asyncio.create_task(reflection_loop())
 
             while True:
-                await process_buffer(transcription_model, use_remote_transcription, args.remote_transcribe)
+                await process_buffer(transcription_model, use_remote_transcription, REMOTE_TRANSCRIBE_URL)
                 await asyncio.sleep(0.1)
     except KeyboardInterrupt:
         print(f"{get_timestamp()} Streaming stopped.")
@@ -341,7 +340,7 @@ async def main():
         logger.error(f"An unexpected error occurred: {str(e)}")
         logger.exception("An error occurred during execution.")
     finally:
-        connections.disconnect("default")
+        pass  # Remove connections.disconnect("default") since we are not connecting to Milvus
 
 if __name__ == "__main__":
     asyncio.run(main())

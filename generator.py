@@ -1,3 +1,5 @@
+# generator.py
+
 import asyncio
 import logging
 import os
@@ -10,8 +12,7 @@ logger = logging.getLogger("twin")
 # Initialize the model with relevant API URLs and keys
 model = Model(
     gpt4o_url="https://api.openai.com/v1/chat/completions",
-    gpt4o_key=os.environ.get("OPENAI_API_KEY"),
-    ollama_model="llama3.1"
+    gpt4o_key=os.environ.get("OPENAI_API_KEY")
 )
 
 def clean_gpt_response(raw_response):
@@ -66,7 +67,7 @@ def process_result(raw_result):
             "confirmed": False
         }
 
-async def run_inference(source_text, accumbens_commands, previous_response=None, use_local_inference=False, ollama_ip=None):
+async def run_inference(source_text, accumbens_commands, previous_response=None, use_remote_inference=False, inference_url=None):
     prompt = PROMPT.format(
         source_text=source_text,
         accumbens_commands=accumbens_commands,
@@ -75,11 +76,8 @@ async def run_inference(source_text, accumbens_commands, previous_response=None,
 
     logger.info(f"Running inference with prompt: {prompt}")
 
-    if use_local_inference:
-        if ollama_ip:
-            raw_result, duration = await model.remote_ollama_inference(prompt, ollama_ip)
-        else:
-            raw_result, duration = await model.local_ollama_inference(prompt)
+    if use_remote_inference and inference_url:
+        raw_result, duration = await model.remote_inference(prompt, inference_url)
     else:
         raw_result, duration = await model.gpt4o_inference(prompt, SYSTEM_PROMPT)
 

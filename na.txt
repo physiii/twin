@@ -3,8 +3,8 @@ pactl set-sink-volume @DEFAULT_SINK@ -15%  # Decrease system volume by <percent>
 pactl set-sink-mute @DEFAULT_SINK@ toggle    # Toggle mute/unmute on the default sink (mute/unmute system volume)
 playerctl position <seconds>-                # Go back or backward by <seconds> in the current media or video
 playerctl position <seconds>+                # Go forward by <seconds> in the current media or video
-playerctl play                               # Start or resume playback of the current media
-playerctl pause                              # Pause the current media playback
+playerctl play                               # Start or resume playback of the current video or media
+playerctl pause                              # Pause the current video or media
 xdotool key F11                              # Send 'F11' key to toggle fullscreen mode for the active window
 xdotool key Page_Up                          # Scroll up an entire page in the active window
 xdotool key Page_Down                        # Scroll down an entire page in the active window
@@ -15,5 +15,6 @@ xdotool key ctrl+alt+Left                    # Go to the left workspace
 xdotool key ctrl+alt+Right                   # Go to the right workspace
 xdotool key Super_L                          # Spread the windows by system (Super) key
 thermostat --room office --set-temp <temperature>  # Set temperature of <room> to <temperature>°F
-thermostat --room office --power <on|off>          # Turn on or off the thermostat
-thermostat --room office --status                  # Get the status of the thermostat
+thermostat --room office --power on          # Turn on or power on the thermostat or AC
+thermostat --room office --power off         # Turn off or power off the thermostat or AC
+thermostat --room office --status            # Get the status of the thermostat
