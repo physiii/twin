@@ -56,7 +56,7 @@ CHUNK_SIZE = 1024
 AMY_DISTANCE_THRESHOLD = 0.7
 NA_DISTANCE_THRESHOLD = 1.4
 HIP_DISTANCE_THRESHOLD = 1.1
-WAKE_DISTANCE_THRESHOLD = 0.60
+WAKE_DISTANCE_THRESHOLD = 0.50
 
 # TTS configuration
 TTS_PYTHON_PATH = "/home/andy/venvs/tts-env/bin/python"
@@ -135,7 +135,6 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
         return
 
     rms = calculate_rms(audio_data)
-    
 
     if rms < SILENCE_THRESHOLD:
         return
@@ -160,26 +159,37 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
         logger.info(f"[Source] {get_timestamp()} {text}")
         running_log.append(f"{get_timestamp()} [Transcription] {text}")
 
-        # **Modification Start: Use last few words for wake phrase detection**
-        # Extract last N words
+        # **Modification Start: Iterate through the entire transcription with a sliding window of 3 words**
         words = text.strip().split()
-        last_few_words = ' '.join(words[-3:])  # Adjust N as needed (e.g., last 10 words)
+        window_size = min(len(words), 8)
 
-        # Wake Phrase Search
-        wake_results, wake_time = await run_search(last_few_words, 'wake', remote_store_url=REMOTE_STORE_URL)
-        relevant_wake = [r for r in wake_results if r[1] < WAKE_DISTANCE_THRESHOLD]
+        wake_detected = False  # Flag to indicate if wake phrase is detected in this transcription
+
+        for i in range(len(words) - window_size + 1):
+            window = ' '.join(words[i:i+window_size])
+
+            # Wake Phrase Search
+            wake_results, wake_time = await run_search(window, 'wake', remote_store_url=REMOTE_STORE_URL)
+            relevant_wake = [r for r in wake_results if r[1] < WAKE_DISTANCE_THRESHOLD]
+
+            if relevant_wake and not is_awake:
+                is_awake = True
+                wake_start_time = time.time()
+                did_inference = False  # Reset did_inference when system wakes up
+                logger.info(f"[Wake] System awakened by phrase: {relevant_wake[0][0]} with distance: {relevant_wake[0][1]}")
+
+                # Play Wake Sound Asynchronously
+                asyncio.create_task(play_wake_sound(WAKE_SOUND_FILE))
+
+                wake_detected = True  # Mark that wake has been detected
+                break  # Exit the loop after detecting wake phrase
+
         # **Modification End**
 
-        if relevant_wake and not is_awake:
-            is_awake = True
-            wake_start_time = time.time()
-            did_inference = False  # Reset did_inference when system wakes up
-            logger.info(f"[Wake] System awakened by phrase: {relevant_wake[0][0]} with distance: {relevant_wake[0][1]}")
+        if wake_detected:
+            continue  # Skip further processing for this transcription as wake has been handled
 
-            # Play Wake Sound Asynchronously
-            asyncio.create_task(play_wake_sound(WAKE_SOUND_FILE))
-
-        if is_awake and ((time.time() - wake_start_time) <= WAKE_TIMEOUT or is_processing):                
+        if is_awake and ((time.time() - wake_start_time) <= WAKE_TIMEOUT or is_processing):
 
             # Search
             search_start = time.time()
