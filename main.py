@@ -44,7 +44,7 @@ REFLECTION_INTERVAL = 3000  # Set the reflection interval in seconds
 DEVICE_TYPE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE_TYPE == "cuda" else "float32"
 SAMPLE_RATE = 16000
-BUFFER_DURATION = 6  # seconds
+BUFFER_DURATION = 3  # seconds
 BUFFER_SIZE = SAMPLE_RATE * BUFFER_DURATION
 SMALL_BUFFER_DURATION = 0.2  # 200 milliseconds for the small buffer
 SMALL_BUFFER_SIZE = int(SAMPLE_RATE * SMALL_BUFFER_DURATION)
@@ -73,9 +73,9 @@ TTS_SCRIPT_PATH = "/home/andy/scripts/tts/tts.py"
 WAKE_SOUND_FILE = "/media/mass/scripts/twin/wake.wav"  # Ensure this file exists
 SLEEP_SOUND_FILE = "/media/mass/scripts/twin/sleep.wav"  # Ensure this file exists
 
-# Define the wake phrase and similarity threshold
-WAKE_PHRASE = "Hey computer."
-FUZZY_SIMILARITY_THRESHOLD = 55
+# Define the wake phrases and similarity threshold
+WAKE_PHRASES = ["Hey computer.", "Hey twin"]
+FUZZY_SIMILARITY_THRESHOLD = 60
 
 # Parse command-line arguments
 parser = ArgumentParser(description="Live transcription with flexible inference and embedding options.")
@@ -172,7 +172,7 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
 
         # Iterate through the entire transcription with a sliding window
         words = text.strip().split()
-        window_size = min(len(words), 2)
+        window_size = min(len(words), 2)  # Adjusted to match the wake phrases
 
         wake_detected = False  # Flag to indicate if wake phrase is detected in this transcription
 
@@ -183,31 +183,42 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
             wake_results, wake_time = await run_search(window, 'wake', remote_store_url=REMOTE_STORE_URL)
             relevant_wake = [r for r in wake_results if r[1] < WAKE_DISTANCE_THRESHOLD]
 
-            # Fuzzy Match using RapidFuzz
-            similarity = fuzz.token_set_ratio(window, WAKE_PHRASE)
-            fuzzy_match = False
-            if similarity >= FUZZY_SIMILARITY_THRESHOLD:
-                fuzzy_match = True
+            # Fuzzy Match using RapidFuzz for all wake phrases
+            fuzzy_matches = []
+            for phrase in WAKE_PHRASES:
+                similarity = fuzz.token_set_ratio(window, phrase)
+                if similarity >= FUZZY_SIMILARITY_THRESHOLD:
+                    fuzzy_matches.append((phrase, similarity))
 
-            if not is_awake:
-                if relevant_wake and fuzzy_match:
-                    is_awake = True
-                    wake_start_time = time.time()
-                    did_inference = False  # Reset did_inference when system wakes up
+            if relevant_wake:
+                if is_awake:
+                    break
 
-                    matched_phrase = relevant_wake[0][0]
-                    distance = relevant_wake[0][1]
+                is_awake = True
 
-                    logger.info(
-                        f"[Wake] System awakened by phrase: '{matched_phrase}' with distance: {distance}, "
-                        f"similarity: {similarity} (source text: '{window}')"
-                    )
+                if not fuzzy_matches:
+                    break
+                    
+                wake_start_time = time.time()
+                did_inference = False  # Reset did_inference when system wakes up
 
-                    # Play Wake Sound Asynchronously
-                    asyncio.create_task(play_wake_sound(WAKE_SOUND_FILE))
+                # Build the log message
+                log_message = "[Wake] System awakened by phrase(s): "
+                if relevant_wake:
+                    for match in relevant_wake:
+                        log_message += f"'{match[0]}' with distance: {match[1]}, "
+                if fuzzy_matches:
+                    for match in fuzzy_matches:
+                        log_message += f"'{match[0]}' with similarity: {match[1]}, "
+                log_message += f"(source text: '{window}')"
 
-                    wake_detected = True  # Mark that wake has been detected
-                    break  # Exit the loop after detecting wake phrase
+                logger.info(log_message)
+
+                # Play Wake Sound Asynchronously
+                asyncio.create_task(play_wake_sound(WAKE_SOUND_FILE))
+
+                wake_detected = True  # Mark that wake has been detected
+                break  # Exit the loop after detecting wake phrase
 
         if wake_detected:
             continue  # Skip further processing for this transcription as wake has been handled
@@ -390,9 +401,9 @@ async def main():
             )
             print(f"Using {inference_type} for inference, and {transcription_type} for transcription.")
             print(f"TTS playback is {'disabled' if args.silent else 'enabled'}.")
-
+    
             reflection_task = asyncio.create_task(reflection_loop())
-
+    
             while True:
                 await process_buffer(transcription_model, use_remote_transcription, REMOTE_TRANSCRIBE_URL)
                 await asyncio.sleep(0.1)
