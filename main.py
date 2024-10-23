@@ -44,7 +44,7 @@ REFLECTION_INTERVAL = 3000  # Set the reflection interval in seconds
 DEVICE_TYPE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE_TYPE == "cuda" else "float32"
 SAMPLE_RATE = 16000
-BUFFER_DURATION = 3  # seconds
+BUFFER_DURATION = 6  # seconds
 BUFFER_SIZE = SAMPLE_RATE * BUFFER_DURATION
 SMALL_BUFFER_DURATION = 0.2  # 200 milliseconds for the small buffer
 SMALL_BUFFER_SIZE = int(SAMPLE_RATE * SMALL_BUFFER_DURATION)
@@ -52,7 +52,7 @@ LANGUAGE = "en"
 SIMILARITY_THRESHOLD = 85
 COOLDOWN_PERIOD = 0  # seconds
 RISK_THRESHOLD = 0.5  # Risk threshold for command execution
-HISTORY_BUFFER_SIZE = 10  # Number of recent transcriptions to keep in history
+HISTORY_BUFFER_SIZE = 4  # Number of recent transcriptions to keep in history
 HISTORY_MAX_CHARS = 4000  # Maximum number of characters to send to the LLM
 WAKE_TIMEOUT = 16  # Time in seconds for how long the system remains "awake" after detecting the wake phrase
 SILENCE_THRESHOLD = 0.0001  # Threshold for determining if the audio buffer contains silence
@@ -130,6 +130,8 @@ def calculate_rms(audio_data):
     return np.sqrt(np.mean(np.square(audio_data)))
 
 async def process_buffer(transcription_model, use_remote_transcription, remote_transcribe_url):
+
+    await asyncio.sleep(0.5)
     global is_awake, wake_start_time, is_processing, did_inference
     process_start = time.time()
 
@@ -284,12 +286,12 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
 
                 running_log.append(f"{get_timestamp()} [Response] {json.dumps(inference_response, indent=2)}")
 
-                # Clear the audio buffer after processing
-                audio_buffer.clear()
+                # # Clear the audio buffer after processing
+                # audio_buffer.clear()
 
-                # Ensure the audio_queue is also cleared
-                with audio_queue.mutex:
-                    audio_queue.queue.clear()
+                # # Ensure the audio_queue is also cleared
+                # with audio_queue.mutex:
+                #     audio_queue.queue.clear()
 
                 if inference_response:
                     logger.info(f"[{inference_type}] {json.dumps(inference_response, indent=2)}")
@@ -406,7 +408,6 @@ async def main():
     
             while True:
                 await process_buffer(transcription_model, use_remote_transcription, REMOTE_TRANSCRIBE_URL)
-                await asyncio.sleep(0.1)
     except KeyboardInterrupt:
         print(f"{get_timestamp()} Streaming stopped.")
     except Exception as e:

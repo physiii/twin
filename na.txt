@@ -18,3 +18,9 @@ thermostat --room office --set-temp <temperature>  # Set temperature of <room> t
 thermostat --room office --power on          # Turn on or power on the thermostat or AC
 thermostat --room office --power off         # Turn off or power off the thermostat or AC
 thermostat --room office --status            # Get the status of the thermostat
+lights --status                              # Get the current status of the lights
+lights --power on                            # Turn on the lights
+lights --power off                           # Turn off the lights
+lights --brightness 100                      # Set brightness of the lights from 0 to 100 percent
+lights --color blue                          # Change lights to blue
+lights --animate sunrise                     # Start sunrise animation
