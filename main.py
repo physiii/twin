@@ -258,6 +258,7 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
                 running_log.append(prompt_text)
 
                 inference_response = await process_command_text(history_text, context)
+                logger.info(f"[Inference] {inference_response}")
                 if inference_response:
                     did_inference = True
                 is_processing = False
