@@ -5,7 +5,7 @@ from aiohttp import web
 import logging
 from command_processor import process_command_text  # Import the command processor
 
-logger = logging.getLogger("twin")
+logger = logging.getLogger(__name__)
 
 async def handle_command(request):
     data = await request.json()

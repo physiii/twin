@@ -29,13 +29,11 @@ from webserver import start_webserver  # Import the webserver module
 from command_processor import process_command_text  # Import the command processor
 
 # Initialize logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(name)s] %(levelname)s: %(message)s'
+)
 logger = logging.getLogger("twin")
-
-# Suppress logging from other libraries
-for name in logging.root.manager.loggerDict:
-    if name != "twin":
-        logging.getLogger(name).setLevel(logging.ERROR)
 
 # Suppress Whisper logs to ERROR level
 logging.getLogger("faster_whisper").setLevel(logging.ERROR)
@@ -55,7 +53,7 @@ COOLDOWN_PERIOD = 0  # seconds
 RISK_THRESHOLD = 0.5  # Risk threshold for command execution
 HISTORY_BUFFER_SIZE = 4  # Number of recent transcriptions to keep in history
 HISTORY_MAX_CHARS = 4000  # Maximum number of characters to send to the LLM
-WAKE_TIMEOUT = 16  # Time in seconds for how long the system remains "awake" after detecting the wake phrase
+WAKE_TIMEOUT = 24  # Time in seconds for how long the system remains "awake" after detecting the wake phrase
 SILENCE_THRESHOLD = 0.0001  # Threshold for determining if the audio buffer contains silence
 CHANNELS = 1
 CHUNK_SIZE = 1024
@@ -143,6 +141,7 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
         did_inference = False
 
         inference_response = await process_command_text(command_text, context)
+        logger.info(f"[Inference] {inference_response}")
         if inference_response:
             did_inference = True
         return

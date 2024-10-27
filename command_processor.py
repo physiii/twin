@@ -9,7 +9,7 @@ from generator import run_inference
 from search import run_search
 from audio import play_tts_response
 
-logger = logging.getLogger("twin")
+logger = logging.getLogger(__name__)
 
 def get_timestamp():
     USE_TIMESTAMP = False
@@ -66,15 +66,12 @@ async def process_command_text(text, context):
         # Inference
         inference_start = time.time()
         if REMOTE_INFERENCE_URL:
-            logger.info(f"Using remote inference: {REMOTE_INFERENCE_URL}")
             inference_response, raw_response = await run_inference(
                 text,
                 combined_commands,
                 use_remote_inference=True,
                 inference_url=REMOTE_INFERENCE_URL,
             )
-            if raw_response:
-                logger.info(f"[Remote Inference ({REMOTE_INFERENCE_URL})] {raw_response}")
         inference_end = time.time()
         inference_time = inference_end - inference_start
 
@@ -82,12 +79,7 @@ async def process_command_text(text, context):
             # Execution
             execution_time = 0
 
-            if raw_response:
-                logger.info(f"[Raw Inference Response] {inference_response}")
-
             if 'commands' in inference_response:
-                logger.info(f"[Raw Inference Commands] {inference_response['commands']}")
-
                 # Handle JSON string commands
                 if isinstance(inference_response['commands'], list) and len(inference_response['commands']) > 0:
                     if isinstance(inference_response['commands'][0], str) and 'json' in inference_response['commands'][0]:
@@ -127,13 +119,13 @@ async def process_command_text(text, context):
                 execution_time = execution_end - execution_start
 
             # TTS
-            if not args.silent and inference_response.get('requires_audio_feedback', False):
-                asyncio.create_task(play_tts_response(
-                    inference_response['response'],
-                    tts_python_path=TTS_PYTHON_PATH,
-                    tts_script_path=TTS_SCRIPT_PATH,
-                    silent=args.silent,
-                ))
+            # if not args.silent and inference_response.get('requires_audio_feedback', False):
+            #     asyncio.create_task(play_tts_response(
+            #         inference_response['response'],
+            #         tts_python_path=TTS_PYTHON_PATH,
+            #         tts_script_path=TTS_SCRIPT_PATH,
+            #         silent=args.silent,
+            #     ))
 
             total_time = time.time() - process_start
             logger.info(

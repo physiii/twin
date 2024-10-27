@@ -7,7 +7,7 @@ import os
 import time
 import json
 
-logger = logging.getLogger("model")
+logger = logging.getLogger(__name__)
 
 class Model:
     def __init__(self, gpt4o_url, gpt4o_key):

@@ -7,7 +7,7 @@ import json
 from prompt import SYSTEM_PROMPT, PROMPT
 from model import Model
 
-logger = logging.getLogger("twin")
+logger = logging.getLogger(__name__)
 
 # Initialize the model with relevant API URLs and keys
 model = Model(
@@ -26,7 +26,6 @@ def process_result(raw_result):
         try:
             raw_result = json.loads(raw_result)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse raw_result as JSON: {e}")
             return {
                 "commands": ["echo " + str(raw_result)],
                 "response": str(raw_result),
@@ -42,7 +41,7 @@ def process_result(raw_result):
                     nested_response = json.loads(raw_result['response'])
                     raw_result.update(nested_response)
                 except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse nested response as JSON: {e}")
+                    logger.debug(f"Could not to parse nested response as JSON: {e}")
             
             return {
                 "commands": raw_result.get("commands", ["echo " + str(raw_result)]),

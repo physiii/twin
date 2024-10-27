@@ -5,7 +5,7 @@ import shlex
 from datetime import datetime, timedelta
 import logging
 
-logger = logging.getLogger("twin")
+logger = logging.getLogger(__name__)
 
 last_executed_commands = {}  # Dictionary to store the timestamp of last command executions
 
