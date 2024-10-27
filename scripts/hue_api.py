@@ -1,4 +1,3 @@
-# hue_api.py
 import requests
 import logging
 import sys
@@ -6,6 +5,7 @@ import os
 import json
 import colorsys
 import time
+from scenes import detect_scene, SCENES  # Import scene-related functionality
 
 CONFIG_PATH = os.path.expanduser("~/.hue_config.json")
 
@@ -150,14 +150,16 @@ def get_api_username(bridge_ip, max_retries=30, delay=2):
     logging.error("Failed to register new user. Ensure the link button was pressed.")
     sys.exit(1)
 
-def list_lights(bridge_ip, username, room):
+def list_lights(bridge_ip, username, room="all"):
     """
-    List all connected Hue lights in the specified room.
+    List all connected Hue lights in the specified room and detect current scene.
     """
     light_ids = get_light_ids(bridge_ip, username, room)
     if not light_ids:
         logging.error(f"No lights found for room '{room}'.")
         sys.exit(1)
+
+    lights_status = []  # Collect light states for scene detection
 
     for light_id in light_ids:
         url = f"http://{bridge_ip}/api/{username}/lights/{light_id}"
@@ -165,16 +167,39 @@ def list_lights(bridge_ip, username, room):
         if response.status_code != 200:
             logging.error(f"Failed to retrieve light {light_id}. Status code: {response.status_code}")
             continue
+        
         light = response.json()
+        state = light.get('state', {})
+        lights_status.append(state)  # Add state to collection for scene detection
+        
         name = light.get('name', 'Unknown')
-        state = light.get('state', {}).get('on', False)
-        brightness = light.get('state', {}).get('bri', 'N/A')
-        hue = light.get('state', {}).get('hue', 'N/A')
-        saturation = light.get('state', {}).get('sat', 'N/A')
-        colormode = light.get('state', {}).get('colormode', 'N/A')
-        xy = light.get('state', {}).get('xy', 'N/A')
-        ct = light.get('state', {}).get('ct', 'N/A')
-        logging.info(f"ID: {light_id}, Name: {name}, State: {'On' if state else 'Off'}, Brightness: {brightness}, Hue: {hue}, Saturation: {saturation}, Colormode: {colormode}, XY: {xy}, CT: {ct}")
+        on_state = state.get('on', False)
+        brightness = state.get('bri', 'N/A')
+        hue = state.get('hue', 'N/A')
+        saturation = state.get('sat', 'N/A')
+        colormode = state.get('colormode', 'N/A')
+        xy = state.get('xy', 'N/A')
+        ct = state.get('ct', 'N/A')
+        
+        logging.info(
+            f"ID: {light_id}, "
+            f"Name: {name}, "
+            f"State: {'On' if on_state else 'Off'}, "
+            f"Brightness: {brightness}, "
+            f"Hue: {hue}, "
+            f"Saturation: {saturation}, "
+            f"Colormode: {colormode}, "
+            f"XY: {xy}, "
+            f"CT: {ct}"
+        )
+
+    # Detect and display current scene
+    if len(lights_status) > 0:
+        current_scene = detect_scene(lights_status)
+        if current_scene:
+            logging.info(f"Current Scene: {current_scene}")
+        else:
+            logging.info("Current Scene: Custom (no matching predefined scene)")
 
 def turn_power(bridge_ip, username, room, power_state):
     """

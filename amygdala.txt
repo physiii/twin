@@ -1,6 +1,7 @@
 I want to change the lights.
 I want to set the color of the lights.
 I want to turn on or turn off the lights.
+Change color of lights.
 I need to change the room temperature.
 I need to turn on or off the air conditioning.
 I want to get a drink.
@@ -14,9 +15,11 @@ I need to lock the doors.
 I want to play some music.
 I need to set a reminder.
 I want to pause the movie.
-I want to to watch or play a movie.
-I want to to watch or play a show.
-I want to to watch or play the video.
+I want to play the video.
+I want to pause the video.
+I want to watch or play a movie.
+I want to watch or play a show.
+I want to watch or play the video.
 I want to go back in the video.
 I want to go forward in the video.
 I need to skip to the next song.
@@ -39,3 +42,7 @@ I think I did something wrong.
 I made an error.
 I didn't mean that.
 That's not what I wanted.
+I have a question and need some information.
+Can you help me understand or find details about something?
+I’d like some guidance or answers on a topic or task.
+I have a question.

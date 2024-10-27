@@ -22,5 +22,5 @@ lights --status                              # Get the current status of the lig
 lights --power on                            # Turn on the lights
 lights --power off                           # Turn off the lights
 lights --brightness 100                      # Set brightness of the lights from 0 to 100 percent
-lights --color blue                          # Change lights to blue
+lights --color blue                          # Change lights to blue, red, green or any other color
 lights --animate sunrise                     # Start sunrise animation

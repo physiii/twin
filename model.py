@@ -51,7 +51,7 @@ class Model:
         """
         start_time = time.time()
         payload = {
-            "model": "llama3.1",  # Ensure this matches your desired model
+            "model": "mistral-small:22b",
             "prompt": prompt,
             "stream": False
         }

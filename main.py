@@ -5,13 +5,11 @@ from collections import deque
 from datetime import datetime
 import asyncio
 import queue
-import re
 import numpy as np
 import sounddevice as sd
 import json
 import torch
 import time
-from faster_whisper import WhisperModel
 from argparse import ArgumentParser
 from generator import run_inference
 from audio import (
@@ -21,11 +19,14 @@ from audio import (
     play_wake_sound,
     play_sleep_sound,
 )
-from action import execute_commands, is_in_cooldown
-from search import is_similar, run_search
+from action import execute_commands
+from search import run_search
 from transcribe import transcribe_audio, init_transcription_model
 from reflection import reflect
-from rapidfuzz import fuzz  # Added for fuzzy matching
+from rapidfuzz import fuzz
+
+from webserver import start_webserver  # Import the webserver module
+from command_processor import process_command_text  # Import the command processor
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
@@ -44,7 +45,7 @@ REFLECTION_INTERVAL = 3000  # Set the reflection interval in seconds
 DEVICE_TYPE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE_TYPE == "cuda" else "float32"
 SAMPLE_RATE = 16000
-BUFFER_DURATION = 6  # seconds
+BUFFER_DURATION = 3  # Reduced to 3 seconds for responsiveness
 BUFFER_SIZE = SAMPLE_RATE * BUFFER_DURATION
 SMALL_BUFFER_DURATION = 0.2  # 200 milliseconds for the small buffer
 SMALL_BUFFER_SIZE = int(SAMPLE_RATE * SMALL_BUFFER_DURATION)
@@ -59,8 +60,8 @@ SILENCE_THRESHOLD = 0.0001  # Threshold for determining if the audio buffer cont
 CHANNELS = 1
 CHUNK_SIZE = 1024
 
-# Define the missing constants
-AMY_DISTANCE_THRESHOLD = 0.7
+# Define thresholds
+AMY_DISTANCE_THRESHOLD = 1.0
 NA_DISTANCE_THRESHOLD = 1.4
 HIP_DISTANCE_THRESHOLD = 1.1
 WAKE_DISTANCE_THRESHOLD = 0.30
@@ -70,8 +71,8 @@ TTS_PYTHON_PATH = "/home/andy/venvs/tts-env/bin/python"
 TTS_SCRIPT_PATH = "/home/andy/scripts/tts/tts.py"
 
 # Wake and Sleep Sound Configuration
-WAKE_SOUND_FILE = "/media/mass/scripts/twin/wake.wav"  # Ensure this file exists
-SLEEP_SOUND_FILE = "/media/mass/scripts/twin/sleep.wav"  # Ensure this file exists
+WAKE_SOUND_FILE = "/media/mass/scripts/twin/wake.wav"
+SLEEP_SOUND_FILE = "/media/mass/scripts/twin/sleep.wav"
 
 # Define the wake phrases and similarity threshold
 WAKE_PHRASES = ["Hey computer.", "Hey twin"]
@@ -95,18 +96,19 @@ REMOTE_TRANSCRIBE_URL = args.remote_transcribe
 
 # Circular buffer for audio data
 audio_buffer = deque(maxlen=BUFFER_SIZE)
-small_audio_buffer = deque(maxlen=SMALL_BUFFER_SIZE)  # Smaller buffer for threshold detection
-audio_queue = queue.Queue()  # Initialize audio_queue
-recent_transcriptions = deque(maxlen=10)  # Buffer for recent transcriptions
-history_buffer = deque(maxlen=HISTORY_BUFFER_SIZE)  # Buffer for extended history
-running_log = []  # Running log to capture all events
+small_audio_buffer = deque(maxlen=SMALL_BUFFER_SIZE)
+audio_queue = queue.Queue()
+recent_transcriptions = deque(maxlen=10)
+history_buffer = deque(maxlen=HISTORY_BUFFER_SIZE)
+running_log = []
 
 is_awake = False
 wake_start_time = None
-is_processing = False  # Flag to indicate if the system is processing
-
-# Flag to track if any inference was done during the awake period
+is_processing = False
 did_inference = False
+
+# Command queue for external commands
+command_queue = asyncio.Queue()
 
 def get_timestamp():
     USE_TIMESTAMP = False
@@ -119,28 +121,39 @@ def get_history_text():
     history_text = " ".join(history_buffer)
     if len(history_text) > HISTORY_MAX_CHARS:
         history_text = history_text[-HISTORY_MAX_CHARS:]
-        # Trim to the nearest word
         history_text = history_text[history_text.index(' ') + 1:]
     return history_text
 
 def calculate_rms(audio_data):
-    """Calculate the Root Mean Square (RMS) of the audio data."""
     if len(audio_data) == 0:
-        return np.nan  # Return np.nan if the buffer is empty
+        return np.nan
     return np.sqrt(np.mean(np.square(audio_data)))
 
-async def process_buffer(transcription_model, use_remote_transcription, remote_transcribe_url):
-
-    await asyncio.sleep(0.5)
+async def process_buffer(transcription_model, use_remote_transcription, remote_transcribe_url, context):
+    await asyncio.sleep(0.1)
     global is_awake, wake_start_time, is_processing, did_inference
     process_start = time.time()
 
+    # Check if there's a command in the command_queue
+    if not command_queue.empty():
+        command_text = await command_queue.get()
+        logger.info(f"[Command] Received external command: {command_text}")
+        is_awake = True
+        wake_start_time = time.time()
+        did_inference = False
+
+        inference_response = await process_command_text(command_text, context)
+        if inference_response:
+            did_inference = True
+        return
+
+    # Existing audio processing code
     # Convert small buffer to a NumPy array and calculate RMS
     small_audio_data = np.array(list(small_audio_buffer), dtype=np.float32)
     small_rms = calculate_rms(small_audio_data)
 
     if small_rms < SILENCE_THRESHOLD and not is_awake:
-        return  # Skip processing if below the silence threshold and not awake
+        return
 
     # Now use the larger buffer for transcription
     audio_data = np.array(list(audio_buffer), dtype=np.float32)
@@ -174,9 +187,9 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
 
         # Iterate through the entire transcription with a sliding window
         words = text.strip().split()
-        window_size = min(len(words), 2)  # Adjusted to match the wake phrases
+        window_size = min(len(words), 2)
 
-        wake_detected = False  # Flag to indicate if wake phrase is detected in this transcription
+        wake_detected = False
 
         for i in range(len(words) - window_size + 1):
             window = ' '.join(words[i:i+window_size])
@@ -192,17 +205,14 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
                 if similarity >= FUZZY_SIMILARITY_THRESHOLD:
                     fuzzy_matches.append((phrase, similarity))
 
-            if relevant_wake:
+            if relevant_wake and fuzzy_matches:
                 if is_awake:
                     break
 
                 is_awake = True
 
-                if not fuzzy_matches:
-                    break
-                    
                 wake_start_time = time.time()
-                did_inference = False  # Reset did_inference when system wakes up
+                did_inference = False
 
                 # Build the log message
                 log_message = "[Wake] System awakened by phrase(s): "
@@ -219,11 +229,11 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
                 # Play Wake Sound Asynchronously
                 asyncio.create_task(play_wake_sound(WAKE_SOUND_FILE))
 
-                wake_detected = True  # Mark that wake has been detected
-                break  # Exit the loop after detecting wake phrase
+                wake_detected = True
+                break
 
-        if wake_detected:
-            continue  # Skip further processing for this transcription as wake has been handled
+        # if wake_detected:
+        #     continue
 
         if is_awake and ((time.time() - wake_start_time) <= WAKE_TIMEOUT or is_processing):
 
@@ -241,127 +251,41 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
 
             if relevant_amygdala and relevant_accumbens:
                 # Start processing
-                wake_start_time = time.time()  # Reset the wake start time
+                wake_start_time = time.time()
                 is_processing = True
 
-                for snippet, distance in relevant_amygdala:
-                    logger.info(f"[Amygdala] {get_timestamp()} {snippet} | {distance}")
-
-                accumbens_commands = [snippet for snippet, _ in relevant_accumbens]
-
-                for snippet, distance in relevant_accumbens:
-                    logger.info(f"[Accumbens] {get_timestamp()} {snippet} | {distance}")
-
-                if relevant_hippocampus:
-                    hippocampus_commands = [snippet for snippet, _ in relevant_hippocampus]
-                    for snippet, distance in relevant_hippocampus:
-                        logger.info(f"[Hippocampus] {get_timestamp()} {snippet} | {distance}")
-                else:
-                    hippocampus_commands = []
-
-                combined_commands = accumbens_commands + hippocampus_commands
-
-                # Use the extended history for inference
                 history_text = get_history_text()
                 prompt_text = f"{get_timestamp()} [Prompt] {history_text}"
                 running_log.append(prompt_text)
 
-                # Inference
-                inference_start = time.time()
-                if REMOTE_INFERENCE_URL:
-                    logger.info(f"Using remote inference: {REMOTE_INFERENCE_URL}")
-                    inference_response, _ = await run_inference(
-                        history_text,
-                        combined_commands,
-                        use_remote_inference=True,
-                        inference_url=REMOTE_INFERENCE_URL,
-                    )
-                    inference_type = f"Remote Inference ({REMOTE_INFERENCE_URL})"
-                else:
-                    logger.info("Using GPT-4o for inference.")
-                    inference_response, _ = await run_inference(history_text, combined_commands)
-                    inference_type = "GPT-4o"
-                inference_end = time.time()
-                inference_time = inference_end - inference_start
-
-                running_log.append(f"{get_timestamp()} [Response] {json.dumps(inference_response, indent=2)}")
-
-                # # Clear the audio buffer after processing
-                # audio_buffer.clear()
-
-                # # Ensure the audio_queue is also cleared
-                # with audio_queue.mutex:
-                #     audio_queue.queue.clear()
-
+                inference_response = await process_command_text(history_text, context)
                 if inference_response:
-                    logger.info(f"[{inference_type}] {json.dumps(inference_response, indent=2)}")
-                    did_inference = True  # Set did_inference to True since an inference was done
-
-                    # Execution
-                    execution_start = time.time()
-                    execution_time = 0
-                    if args.execute:
-                        if inference_response['risk'] <= RISK_THRESHOLD or (
-                            inference_response['risk'] > RISK_THRESHOLD and inference_response.get('confirmed', False)
-                        ):
-                            execution_time = await execute_commands(inference_response['commands'], COOLDOWN_PERIOD)
-                            running_log.append(f"{get_timestamp()} [Command] {inference_response['commands']}")
-                        else:
-                            logger.warning(
-                                f"[Warning] {get_timestamp()} Commands not executed. Risk: {inference_response['risk']}. "
-                                f"Confirmation required."
-                            )
-                    execution_end = time.time()
-                    execution_time = execution_end - execution_start
-
-                    # TTS
-                    tts_start = time.time()
-                    # Uncomment the following lines if TTS is required
-                    # tts_time = await play_tts_response(
-                    #     inference_response['response'],
-                    #     tts_python_path=TTS_PYTHON_PATH,
-                    #     tts_script_path=TTS_SCRIPT_PATH,
-                    #     silent=args.silent,
-                    # )
-                    tts_end = time.time()
-                    tts_time = tts_end - tts_start
-
-                    total_time = time.time() - process_start
-                    logger.info(
-                        f"[Timing] {get_timestamp()} Total: {total_time:.4f}s, Transcription: {transcription_time:.4f}s, "
-                        f"Search: {search_time:.4f}s, Inference: {inference_time:.4f}s, "
-                        f"Execution: {execution_time:.4f}s, TTS: {tts_time:.4f}s"
-                    )
-                else:
-                    logger.error(f"Unable to get or parse {inference_type} inference.")
-
-                # Processing complete
+                    did_inference = True
                 is_processing = False
             else:
                 logger.debug(
                     f"Thresholds not met. Amygdala: {bool(relevant_amygdala)}, Accumbens: {bool(relevant_accumbens)}"
                 )
-                is_processing = False  # Ensure processing flag is reset
+                is_processing = False
         else:
-            is_processing = False  # Ensure processing flag is reset
+            is_processing = False
 
     # Reset awake state after timeout if not processing
     if not is_processing and wake_start_time and (time.time() - wake_start_time) > WAKE_TIMEOUT:
         if is_awake:
             logger.info(f"[Wake] System asleep after {WAKE_TIMEOUT} seconds.")
             if not did_inference:
-                # Play Sleep Sound Asynchronously
                 asyncio.create_task(play_sleep_sound(SLEEP_SOUND_FILE))
         is_awake = False
-        did_inference = False  # Reset did_inference for next awake cycle
+        did_inference = False
 
 async def reflection_loop():
     while True:
         await asyncio.sleep(REFLECTION_INTERVAL)
-        if running_log:  # Reflect only if there is something in the log
+        if running_log:
             reflection_data = await reflect(running_log)
             logger.info(f"Reflection report: {json.dumps(reflection_data, indent=2)}")
-            running_log.clear()  # Clear the log after reflection
+            running_log.clear()
 
 async def main():
     log_available_audio_devices()
@@ -385,6 +309,25 @@ async def main():
         args.whisper_model, DEVICE_TYPE, COMPUTE_TYPE
     )
 
+    # Create context for shared variables
+    context = {
+        'REMOTE_STORE_URL': REMOTE_STORE_URL,
+        'REMOTE_INFERENCE_URL': REMOTE_INFERENCE_URL,
+        'args': args,
+        'RISK_THRESHOLD': RISK_THRESHOLD,
+        'COOLDOWN_PERIOD': COOLDOWN_PERIOD,
+        'TTS_PYTHON_PATH': TTS_PYTHON_PATH,
+        'TTS_SCRIPT_PATH': TTS_SCRIPT_PATH,
+        'running_log': running_log,
+        'AMY_DISTANCE_THRESHOLD': AMY_DISTANCE_THRESHOLD,
+        'NA_DISTANCE_THRESHOLD': NA_DISTANCE_THRESHOLD,
+        'HIP_DISTANCE_THRESHOLD': HIP_DISTANCE_THRESHOLD,
+        'command_queue': command_queue,
+    }
+
+    # Initialize web server
+    runner = await start_webserver(context)
+
     try:
         with sd.InputStream(
             callback=lambda indata, frames, time, status: audio_callback(
@@ -403,18 +346,19 @@ async def main():
             )
             print(f"Using {inference_type} for inference, and {transcription_type} for transcription.")
             print(f"TTS playback is {'disabled' if args.silent else 'enabled'}.")
-    
+
             reflection_task = asyncio.create_task(reflection_loop())
-    
+
             while True:
-                await process_buffer(transcription_model, use_remote_transcription, REMOTE_TRANSCRIBE_URL)
+                await process_buffer(transcription_model, use_remote_transcription, REMOTE_TRANSCRIBE_URL, context)
     except KeyboardInterrupt:
         print(f"{get_timestamp()} Streaming stopped.")
     except Exception as e:
         logger.error(f"An unexpected error occurred: {str(e)}")
         logger.exception("An error occurred during execution.")
     finally:
-        pass  # Cleanup if necessary
+        # Cleanup web server
+        await runner.cleanup()
 
 if __name__ == "__main__":
     asyncio.run(main())
