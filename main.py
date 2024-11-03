@@ -19,7 +19,6 @@ from audio import (
     play_wake_sound,
     play_sleep_sound,
 )
-from action import execute_commands
 from search import run_search
 from transcribe import transcribe_audio, init_transcription_model
 from reflection import reflect
