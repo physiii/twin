@@ -74,7 +74,9 @@ def main():
     file_paths = [
         '/media/mass/scripts/twin/wake.txt',
         '/media/mass/scripts/twin/na.txt',
-        '/media/mass/scripts/twin/amygdala.txt'
+        '/media/mass/scripts/twin/amygdala.txt',
+        '/media/mass/scripts/twin/modes.txt',         # Added modes.txt
+        '/media/mass/scripts/twin/conditions.txt'     # Added conditions.txt
     ]
 
     for file_path in file_paths:

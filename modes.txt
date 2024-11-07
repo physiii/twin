@@ -1,0 +1,23 @@
+Switch to Wake Mode.
+Switch to Sleep Mode.
+Activate Automatic Mode.
+Change to Wake Mode.
+Change to Sleep Mode.
+Enable Wake Mode.
+Enable Sleep Mode.
+Set system to Wake Mode.
+Set system to Sleep Mode.
+Enter Wake Mode.
+Enter Sleep Mode.
+Switch system to Wake Mode.
+Switch system to Sleep Mode.
+Go into Wake Mode.
+Go into Sleep Mode.
+I want to switch to Wake Mode.
+I want to switch to Sleep Mode.
+It's time to wake up.
+It's time to sleep.
+Please switch to Wake Mode.
+Please switch to Sleep Mode.
+Wake up.
+Go to sleep.
