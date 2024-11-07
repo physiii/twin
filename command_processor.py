@@ -34,12 +34,11 @@ async def process_command_text(text, context):
     CONDITIONS_DISTANCE_THRESHOLD = context['CONDITIONS_DISTANCE_THRESHOLD']
     MODES_DISTANCE_THRESHOLD = context['MODES_DISTANCE_THRESHOLD']
 
-    # Temporarily adjust thresholds for testing
-    AMY_DISTANCE_THRESHOLD = 2.0
-    NA_DISTANCE_THRESHOLD = 2.0
-    HIP_DISTANCE_THRESHOLD = 2.0
-    CONDITIONS_DISTANCE_THRESHOLD = 2.0
-    MODES_DISTANCE_THRESHOLD = 2.0
+    # Define thresholds
+    AMY_DISTANCE_THRESHOLD = 1.0
+    NA_DISTANCE_THRESHOLD = 1.4
+    HIP_DISTANCE_THRESHOLD = 1.1
+    WAKE_DISTANCE_THRESHOLD = 0.30
 
     process_start = time.time()
     logger.info(f"[Process Command] Processing text: '{text}'")

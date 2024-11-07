@@ -75,13 +75,12 @@ async def run_inference(source_text, accumbens_commands, previous_response=None,
 
     logger.info(f"Running inference with prompt: {prompt}")
 
-    if use_remote_inference and inference_url:
-        raw_result, duration = await model.remote_inference(prompt, inference_url)
-    else:
-        raw_result, duration = await model.gpt4o_inference(prompt, SYSTEM_PROMPT)
+    raw_result, duration = await model.remote_inference(prompt, inference_url)
+
+    parse_result = clean_gpt_response(raw_result)
 
     if raw_result:
-        return process_result(raw_result), duration
+        return process_result(parse_result), duration
     else:
         logger.error("No result returned from inference.")
         return None, duration

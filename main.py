@@ -316,6 +316,7 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
             relevant_modes = [r for r in modes_results if r[1] < MODES_DISTANCE_THRESHOLD]
 
             if relevant_amygdala and relevant_accumbens:
+                wake_start_time = time.time()
                 is_processing = True
 
                 history_text = get_history_text()
