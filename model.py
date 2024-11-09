@@ -50,8 +50,9 @@ class Model:
             tuple: (response_text, duration)
         """
         start_time = time.time()
+        # mistralsmall:22b, llama3.2:3b, llama3.1:8b
         payload = {
-            "model": "mistral-small:22b",
+            "model": "llama3.1:8b",
             "prompt": prompt,
             "stream": False
         }
