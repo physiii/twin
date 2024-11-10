@@ -3,22 +3,82 @@
 import time
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import asyncio
+import subprocess
+import os
+import shlex
 
-from action import execute_commands
 from generator import run_inference
 from search import run_search
 from audio import play_tts_response
 
 logger = logging.getLogger(__name__)
 
-def get_timestamp():
-    USE_TIMESTAMP = False
-    if USE_TIMESTAMP:
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    else:
-        return ""
+# Dictionary to store the timestamp of last command executions
+last_executed_commands = {}
+
+def is_in_cooldown(command, cooldown_period):
+    now = datetime.now()
+    if command in last_executed_commands:
+        last_execution_time = last_executed_commands[command]
+        if now - last_execution_time < timedelta(seconds=cooldown_period):
+            return True
+    last_executed_commands[command] = now
+    return False
+
+async def execute_commands(commands, cooldown_period):
+    start_time = datetime.now()
+    for command in commands:
+        if is_in_cooldown(command, cooldown_period):
+            logger.info(f"[Cooldown] Command '{command}' skipped due to cooldown.")
+            continue
+        try:
+            # Detect the current display
+            display = ":0"  # Default to :0 if we can't detect it
+            try:
+                result = subprocess.run(['who'], capture_output=True, text=True)
+                for line in result.stdout.split('\n'):
+                    if '(:' in line:
+                        display = f":{line.split('(:')[-1].split(')')[0]}"
+                        break
+            except Exception as e:
+                logger.error(f"Error detecting display: {str(e)}")
+
+            # Set the DISPLAY environment variable
+            env = os.environ.copy()
+            env['DISPLAY'] = display
+
+            # Check if the command contains shell operators
+            if any(op in command for op in ['&&', '||', '|', ';', '>', '>>', '<']):
+                # Use shell=True for commands with shell operators
+                proc = await asyncio.create_subprocess_shell(
+                    command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env,
+                    shell=True
+                )
+            else:
+                # Use the existing approach for simple commands
+                args = shlex.split(command)
+                proc = await asyncio.create_subprocess_exec(
+                    *args,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env
+                )
+
+            stdout, stderr = await proc.communicate()
+            if proc.returncode == 0:
+                logger.info(f"[Executed] Command: {command}")
+                logger.info(f"[Output] {stdout.decode()}")
+            else:
+                logger.error(f"Command failed: {command}")
+                logger.error(f"Error message: {stderr.decode()}")
+        except Exception as e:
+            logger.error(f"Error executing command '{command}': {str(e)}")
+    return (datetime.now() - start_time).total_seconds()
 
 async def process_command_text(text, context):
     REMOTE_STORE_URL = context['REMOTE_STORE_URL']
@@ -33,12 +93,6 @@ async def process_command_text(text, context):
     HIP_DISTANCE_THRESHOLD = context['HIP_DISTANCE_THRESHOLD']
     CONDITIONS_DISTANCE_THRESHOLD = context['CONDITIONS_DISTANCE_THRESHOLD']
     MODES_DISTANCE_THRESHOLD = context['MODES_DISTANCE_THRESHOLD']
-
-    # Define thresholds
-    AMY_DISTANCE_THRESHOLD = 1.0
-    NA_DISTANCE_THRESHOLD = 1.4
-    HIP_DISTANCE_THRESHOLD = 1.1
-    WAKE_DISTANCE_THRESHOLD = 0.30
 
     process_start = time.time()
     logger.info(f"[Process Command] Processing text: '{text}'")
@@ -91,7 +145,7 @@ async def process_command_text(text, context):
                     await execute_commands(inference_response['commands'], COOLDOWN_PERIOD)
                 else:
                     logger.warning(
-                        f"[Warning] {get_timestamp()} Commands not executed. Risk: {inference_response['risk']}. "
+                        f"[Warning] Commands not executed. Risk: {inference_response['risk']}. "
                         f"Confirmation required."
                     )
 
@@ -105,7 +159,7 @@ async def process_command_text(text, context):
                 ))
 
             logger.info(
-                f"[Timing] {get_timestamp()} Total: {time.time() - process_start:.4f}s, "
+                f"[Timing] Total: {time.time() - process_start:.4f}s, "
                 f"Inference: {inference_end - inference_start:.4f}s"
             )
             return inference_response

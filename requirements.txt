@@ -1,3 +1,4 @@
+aiomqtt
 soundfile
 numpy
 wavio
