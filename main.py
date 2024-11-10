@@ -1,5 +1,3 @@
-# main.py
-
 import logging
 from collections import deque
 from datetime import datetime
@@ -10,6 +8,7 @@ import sounddevice as sd
 import json
 import torch
 import time
+import subprocess  # Added import for subprocess
 from argparse import ArgumentParser
 from audio import (
     log_available_audio_devices,
@@ -144,6 +143,10 @@ did_inference = False
 # Command queue for external commands
 command_queue = asyncio.Queue()
 
+# Global variables to track media state
+playerctl_was_playing = False
+vlc_was_running = False
+
 def get_timestamp():
     """Returns the current timestamp as a string."""
     USE_TIMESTAMP = False
@@ -199,6 +202,80 @@ async def mqtt_event_loop(context):
         logger.error(f"[MQTT] MQTT connection error: {error}")
     except Exception as e:
         logger.exception(f"[MQTT] Unexpected error in MQTT event loop: {e}")
+
+async def pause_media_players():
+    """Pauses media players if they are playing and updates state variables."""
+    global playerctl_was_playing, vlc_was_running
+    loop = asyncio.get_running_loop()
+
+    # Check playerctl status
+    try:
+        result = await loop.run_in_executor(
+            None, lambda: subprocess.run(['playerctl', 'status'], capture_output=True, text=True)
+        )
+        status = result.stdout.strip()
+        if status == 'Playing':
+            await loop.run_in_executor(
+                None, lambda: subprocess.run(['playerctl', 'pause'])
+            )
+            playerctl_was_playing = True
+        else:
+            playerctl_was_playing = False
+    except Exception as e:
+        logger.error(f"Error checking or pausing playerctl: {e}")
+        playerctl_was_playing = False
+
+    # Check vlc state
+    try:
+        result = await loop.run_in_executor(
+            None, lambda: subprocess.run(['ps', '-C', 'vlc', '-o', 'state'], capture_output=True, text=True)
+        )
+        states = result.stdout.strip().split('\n')[1:]  # Skip the header
+        # If any process is in state 'S' (running)
+        if 'S' in states:
+            await loop.run_in_executor(
+                None, lambda: subprocess.run(['pkill', '-STOP', 'vlc'])
+            )
+            vlc_was_running = True
+        else:
+            vlc_was_running = False
+    except Exception as e:
+        logger.error(f"Error checking or pausing vlc: {e}")
+        vlc_was_running = False
+
+async def resume_media_players():
+    """Resumes media players if they were paused by the assistant."""
+    global playerctl_was_playing, vlc_was_running
+    loop = asyncio.get_running_loop()
+
+    # Resume playerctl if we had paused it
+    if playerctl_was_playing:
+        try:
+            result = await loop.run_in_executor(
+                None, lambda: subprocess.run(['playerctl', 'status'], capture_output=True, text=True)
+            )
+            status = result.stdout.strip()
+            if status == 'Paused':
+                await loop.run_in_executor(
+                    None, lambda: subprocess.run(['playerctl', 'play'])
+                )
+        except Exception as e:
+            logger.error(f"Error resuming playerctl: {e}")
+
+    # Resume vlc if we had paused it
+    if vlc_was_running:
+        try:
+            # Check if vlc processes are in state 'T' (stopped)
+            result = await loop.run_in_executor(
+                None, lambda: subprocess.run(['ps', '-C', 'vlc', '-o', 'state'], capture_output=True, text=True)
+            )
+            states = result.stdout.strip().split('\n')[1:]  # Skip the header
+            if 'T' in states:
+                await loop.run_in_executor(
+                    None, lambda: subprocess.run(['pkill', '-CONT', 'vlc'])
+                )
+        except Exception as e:
+            logger.error(f"Error resuming vlc: {e}")
 
 async def process_buffer(transcription_model, use_remote_transcription, remote_transcribe_url, context):
     """Processes the audio buffer for transcription and inference."""
@@ -282,6 +359,9 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
                 wake_start_time = time.time()
                 did_inference = False
 
+                # Pause media players
+                await pause_media_players()
+
                 # Build the log message
                 log_message = "[Wake] System awakened by phrase(s): "
                 if relevant_wake:
@@ -342,6 +422,8 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
             logger.info(f"[Wake] System asleep after {WAKE_TIMEOUT} seconds.")
             if not did_inference:
                 asyncio.create_task(play_sleep_sound(SLEEP_SOUND_FILE))
+            # Resume media players (need to think how to do this when the command was to pause media)
+            # await resume_media_players()
         is_awake = False
         did_inference = False
 
