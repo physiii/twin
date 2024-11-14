@@ -1,4 +1,5 @@
 import logging
+from logging.handlers import RotatingFileHandler
 from collections import deque
 from datetime import datetime
 import asyncio
@@ -8,7 +9,7 @@ import sounddevice as sd
 import json
 import torch
 import time
-import subprocess  # Added import for subprocess
+import subprocess
 from argparse import ArgumentParser
 from audio import (
     log_available_audio_devices,
@@ -19,21 +20,31 @@ from audio import (
 )
 from search import run_search
 from transcribe import transcribe_audio, init_transcription_model
-from reflection import reflect
 from rapidfuzz import fuzz
 
-from webserver import start_webserver  # Import the webserver module
+from webserver import start_webserver
 from command_processor import (
     process_command_text,
     process_mqtt_event_data,
-)  # Import the command processor
+)
+import aiomqtt
+import uuid
+import os
+from quality_control import generate_quality_control_report  # Ensure this import is present
 
-import aiomqtt  # Import aiomqtt for MQTT functionality
+# Ensure the 'logs' directory exists
+os.makedirs('logs', exist_ok=True)
 
-# Initialize logging
+# Initialize logging with a timestamped log file
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+log_filename = f'logs/twin_{timestamp}.log'
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        RotatingFileHandler(log_filename, maxBytes=5*1024*1024, backupCount=5)
+    ]
 )
 logger = logging.getLogger("twin")
 
@@ -41,7 +52,6 @@ logger = logging.getLogger("twin")
 logging.getLogger("faster_whisper").setLevel(logging.ERROR)
 
 # Configuration Parameters
-REFLECTION_INTERVAL = 3000  # Reflection interval in seconds
 DEVICE_TYPE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE_TYPE == "cuda" else "float32"
 SAMPLE_RATE = 16000
@@ -61,7 +71,7 @@ CHANNELS = 1
 CHUNK_SIZE = 1024
 
 # Define thresholds
-AMY_DISTANCE_THRESHOLD = 1.0
+AMY_DISTANCE_THRESHOLD = 1.2
 NA_DISTANCE_THRESHOLD = 1.4
 HIP_DISTANCE_THRESHOLD = 1.1
 WAKE_DISTANCE_THRESHOLD = 0.30
@@ -330,6 +340,13 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
         logger.info(f"[Source] {get_timestamp()} {text}")
         running_log.append(f"{get_timestamp()} [Transcription] {text}")
 
+        # Collect transcriptions
+        if is_awake and 'session_data' in context and context['session_data']:
+            context['session_data']['after_transcriptions'].append(text)
+            history_buffer.append(text)
+        else:
+            recent_transcriptions.append(text)
+
         words = text.strip().split()
         window_size = min(len(words), 2)
 
@@ -377,6 +394,20 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
                 # Play Wake Sound Asynchronously
                 asyncio.create_task(play_wake_sound(WAKE_SOUND_FILE))
 
+                # Initialize session data
+                context['session_data'] = {
+                    "session_id": str(uuid.uuid4()),
+                    "start_time": datetime.now().isoformat(),
+                    "wake_phrase": window,
+                    "before_transcriptions": list(recent_transcriptions),
+                    "after_transcriptions": [],
+                    "inferences": [],
+                    "commands_executed": [],
+                    "vectorstore_results": [],
+                    "user_feedback": [],
+                    "complete_transcription": "",
+                }
+
                 wake_detected = True
                 break
 
@@ -394,6 +425,17 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
             relevant_hippocampus = [r for r in hippocampus_results if r[1] < HIP_DISTANCE_THRESHOLD]
             relevant_conditions = [r for r in conditions_results if r[1] < CONDITIONS_DISTANCE_THRESHOLD]
             relevant_modes = [r for r in modes_results if r[1] < MODES_DISTANCE_THRESHOLD]
+
+            # Update vectorstore results
+            context['session_data']['vectorstore_results'].append({
+                "timestamp": datetime.now().isoformat(),
+                "transcription": text,
+                "amygdala_results": amygdala_results,
+                "accumbens_results": accumbens_results,
+                "hippocampus_results": hippocampus_results,
+                "conditions_results": conditions_results,
+                "modes_results": modes_results,
+            })
 
             if relevant_amygdala and relevant_accumbens:
                 wake_start_time = time.time()
@@ -422,19 +464,17 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
             logger.info(f"[Wake] System asleep after {WAKE_TIMEOUT} seconds.")
             if not did_inference:
                 asyncio.create_task(play_sleep_sound(SLEEP_SOUND_FILE))
-            # Resume media players (need to think how to do this when the command was to pause media)
-            # await resume_media_players()
+            # Complete session data
+            context['session_data']['end_time'] = datetime.now().isoformat()
+            context['session_data']['duration'] = time.time() - wake_start_time
+            context['session_data']['complete_transcription'] = " ".join(history_buffer)
+            # Generate quality control report
+            await generate_quality_control_report(context['session_data'], context)
+            context['session_data'] = None
+            # Resume media players
+            await resume_media_players()
         is_awake = False
         did_inference = False
-
-async def reflection_loop():
-    """Periodically performs reflection based on the running log."""
-    while True:
-        await asyncio.sleep(REFLECTION_INTERVAL)
-        if running_log:
-            reflection_data = await reflect(running_log)
-            logger.info(f"Reflection report: {json.dumps(reflection_data, indent=2)}")
-            running_log.clear()
 
 async def main():
     """Main function to start the voice assistant."""
@@ -483,7 +523,12 @@ async def main():
         "command_queue": command_queue,
         "current_mode": "Wake Mode",
         "available_commands": na_commands,
+        "session_data": None,  # Ensure session_data is initialized
+        "QC_REPORT_DIR": "reports",
     }
+
+    # Ensure the reports directory exists
+    os.makedirs(context['QC_REPORT_DIR'], exist_ok=True)
 
     # Initialize web server
     runner = await start_webserver(context)
@@ -515,8 +560,6 @@ async def main():
             )
             print(f"Using {inference_type} for inference, and {transcription_type} for transcription.")
             print(f"TTS playback is {'disabled' if args.silent else 'enabled'}.")
-
-            reflection_task = asyncio.create_task(reflection_loop())
 
             while True:
                 await process_buffer(

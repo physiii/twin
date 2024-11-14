@@ -1,5 +1,3 @@
-# command_processor.py
-
 import time
 import json
 import logging
@@ -15,6 +13,9 @@ from audio import play_tts_response
 
 logger = logging.getLogger(__name__)
 
+# Remove the import causing the circular dependency
+# from webserver import start_webserver  # Removed to fix circular import
+
 # Dictionary to store the timestamp of last command executions
 last_executed_commands = {}
 
@@ -27,7 +28,7 @@ def is_in_cooldown(command, cooldown_period):
     last_executed_commands[command] = now
     return False
 
-async def execute_commands(commands, cooldown_period):
+async def execute_commands(commands, cooldown_period, context):
     start_time = datetime.now()
     for command in commands:
         if is_in_cooldown(command, cooldown_period):
@@ -73,11 +74,34 @@ async def execute_commands(commands, cooldown_period):
             if proc.returncode == 0:
                 logger.info(f"[Executed] Command: {command}")
                 logger.info(f"[Output] {stdout.decode()}")
+                success = True
+                error = None
             else:
                 logger.error(f"Command failed: {command}")
                 logger.error(f"Error message: {stderr.decode()}")
+                success = False
+                error = stderr.decode()
+
+            # Append command execution data
+            if 'session_data' in context and context['session_data'] is not None:
+                context['session_data']['commands_executed'].append({
+                    "timestamp": datetime.now().isoformat(),
+                    "command": command,
+                    "output": stdout.decode(),
+                    "success": success,
+                    "error": error,
+                })
+
         except Exception as e:
             logger.error(f"Error executing command '{command}': {str(e)}")
+            if 'session_data' in context and context['session_data'] is not None:
+                context['session_data']['commands_executed'].append({
+                    "timestamp": datetime.now().isoformat(),
+                    "command": command,
+                    "output": "",
+                    "success": False,
+                    "error": str(e),
+                })
     return (datetime.now() - start_time).total_seconds()
 
 async def process_command_text(text, context):
@@ -139,10 +163,19 @@ async def process_command_text(text, context):
         inference_end = time.time()
 
         if inference_response:
+            # Record inference data
+            if 'session_data' in context and context['session_data'] is not None:
+                context['session_data']['inferences'].append({
+                    "timestamp": datetime.now().isoformat(),
+                    "source_text": text,
+                    "inference_response": inference_response,
+                    "raw_response": raw_response,
+                })
+
             # Execute commands if the risk level is acceptable
             if args.execute:
                 if inference_response['risk'] <= RISK_THRESHOLD or inference_response.get('confirmed', False):
-                    await execute_commands(inference_response['commands'], COOLDOWN_PERIOD)
+                    await execute_commands(inference_response['commands'], COOLDOWN_PERIOD, context)
                 else:
                     logger.warning(
                         f"[Warning] Commands not executed. Risk: {inference_response['risk']}. "
