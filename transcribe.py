@@ -7,8 +7,6 @@ import io
 import soundfile as sf
 from fuzzywuzzy import fuzz
 
-from logger import setup_logging
-setup_logging()
 logger = logging.getLogger('twin')
 
 # Define common noise phrases

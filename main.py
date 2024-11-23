@@ -1,5 +1,4 @@
-import logging
-from logging.handlers import RotatingFileHandler
+
 from collections import deque
 from datetime import datetime
 import asyncio
@@ -22,10 +21,13 @@ from search import run_search
 from transcribe import transcribe_audio, init_transcription_model
 from rapidfuzz import fuzz
 from webserver import start_webserver
-from command_processor import process_command_text
+from command import process_command_text
 import uuid
 import os
 from quality_control import generate_quality_control_report
+
+import logging
+from logging.handlers import RotatingFileHandler
 from logger import setup_logging
 
 setup_logging()
@@ -180,9 +182,12 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
         did_inference = False
 
         inference_response = await process_command_text(command_text, context)
-        logger.info(f"[Inference] {inference_response}")
         if inference_response:
             did_inference = True
+            # Reset timeout when a command was actually executed
+            if inference_response.get('commands') and context['args'].execute:
+                wake_start_time = time.time()
+        logger.info(f"[Inference] {inference_response}")
         return
 
     small_audio_data = np.array(list(small_audio_buffer), dtype=np.float32)
@@ -273,6 +278,7 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
                     "vectorstore_results": [],
                     "user_feedback": [],
                     "complete_transcription": "",
+                    "source_commands": [],
                 }
 
                 wake_detected = True
@@ -303,9 +309,18 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
                 running_log.append(prompt_text)
 
                 inference_response = await process_command_text(history_text, context)
-                logger.info(f"[Inference] {inference_response}")
                 if inference_response:
                     did_inference = True
+                    # Reset timeout when a command was actually executed
+                    if inference_response.get('commands') and context['args'].execute:
+                        wake_start_time = time.time()
+                        logger.info("[Wake] Timeout reset due to command execution")
+                    context['session_data']['source_commands'].append({
+                        "timestamp": datetime.now().isoformat(),
+                        "command_text": history_text,
+                        "inference_response": inference_response,
+                    })
+                logger.info(f"[Inference] {inference_response}")
                 is_processing = False
             else:
                 logger.debug(f"Thresholds not met. Amygdala: {bool(relevant_amygdala)}, Accumbens: {bool(relevant_accumbens)}")
@@ -315,7 +330,7 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
 
     if not is_processing and wake_start_time and (time.time() - wake_start_time) > WAKE_TIMEOUT:
         if is_awake:
-            logger.info(f"[Wake] System asleep after {WAKE_TIMEOUT} seconds.")
+            logger.info(f"[Wake] System asleep after {WAKE_TIMEOUT} seconds of inactivity.")
             if not did_inference:
                 asyncio.create_task(play_sleep_sound(SLEEP_SOUND_FILE))
             context['session_data']['end_time'] = datetime.now().isoformat()
@@ -370,6 +385,7 @@ async def main():
         "available_commands": na_commands,
         "session_data": None,
         "QC_REPORT_DIR": "reports",
+        "GENERAL_REPORT_FILE": "general_report.txt",  # Added for general report tracking
     }
 
     os.makedirs(context['QC_REPORT_DIR'], exist_ok=True)
@@ -387,7 +403,6 @@ async def main():
             device=input_device,
             dtype="float32",
         ):
-            print(f"{get_timestamp()} Streaming started... Press Ctrl+C to stop.")
             inference_type = (
                 f"remote inference ({REMOTE_INFERENCE_URL})"
                 if REMOTE_INFERENCE_URL
@@ -398,8 +413,7 @@ async def main():
                 if use_remote_transcription
                 else f"local ({args.whisper_model})"
             )
-            print(f"Using {inference_type} for inference, and {transcription_type} for transcription.")
-            print(f"TTS playback is {'disabled' if args.silent else 'enabled'}.")
+            logger.info(f"Using {inference_type} for inference, and {transcription_type} for transcription.")
 
             while True:
                 await process_buffer(
@@ -409,7 +423,7 @@ async def main():
                     context,
                 )
     except KeyboardInterrupt:
-        print(f"{get_timestamp()} Streaming stopped.")
+        logger.info(f"Streaming stopped.")
     except Exception as e:
         logger.error(f"An unexpected error occurred: {str(e)}")
         logger.exception("An error occurred during execution.")

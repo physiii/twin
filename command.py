@@ -1,6 +1,5 @@
 import time
 import json
-import logging
 from datetime import datetime, timedelta
 import asyncio
 import subprocess
@@ -11,7 +10,9 @@ from generator import run_inference
 from search import run_search
 from audio import play_tts_response
 
-logger = logging.getLogger(__name__)
+
+import logging
+logger = logging.getLogger('twin')
 
 last_executed_commands = {}
 
