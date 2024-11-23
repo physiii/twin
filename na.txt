@@ -3,8 +3,8 @@ pactl set-sink-volume @DEFAULT_SINK@ -15%  # Decrease system volume by <percent>
 pactl set-sink-mute @DEFAULT_SINK@ toggle    # Toggle mute/unmute on the default sink (mute/unmute system volume)
 playerctl position <seconds>-                # Go back or backward by <seconds> in the current media or video
 playerctl position <seconds>+                # Go forward by <seconds> in the current media or video
-playerctl play && pkill -CONT vlc            # Start or resume playback of the current video or media
-playerctl pause && pkill -STOP vlc           # Pause the current video or media
+pkill -CONT vlc && playerctl play            # Start, play or resume playback of the current video or media
+pkill -STOP vlc && playerctl pause           # Stop or pause the current video or media
 xdotool key F11                              # Send 'F11' key to toggle fullscreen mode for the active window
 xdotool key Page_Up                          # Scroll up an entire page in the active window
 xdotool key Page_Down                        # Scroll down an entire page in the active window
@@ -22,5 +22,5 @@ lights --status                              # Get the current status of the lig
 lights --power on                            # Turn on the lights
 lights --power off                           # Turn off the lights
 lights --brightness 100                      # Set brightness of the lights from 0 to 100 percent
-lights --color blue                          # Change lights to blue, red, green or any other color
+lights --color blue                          # Change or set the lights to blue, red, green or any other color
 lights --animate sunrise                     # Start sunrise animation

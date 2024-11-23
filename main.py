@@ -32,6 +32,11 @@ import uuid
 import os
 from quality_control import generate_quality_control_report  # Ensure this import is present
 
+from logger import setup_logging
+setup_logging()
+logger = logging.getLogger('twin')
+
+
 # Ensure the 'logs' directory exists
 os.makedirs('logs', exist_ok=True)
 
@@ -46,7 +51,6 @@ logging.basicConfig(
         RotatingFileHandler(log_filename, maxBytes=5*1024*1024, backupCount=5)
     ]
 )
-logger = logging.getLogger("twin")
 
 # Suppress Whisper logs to ERROR level
 logging.getLogger("faster_whisper").setLevel(logging.ERROR)
@@ -438,7 +442,6 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
             })
 
             if relevant_amygdala and relevant_accumbens:
-                wake_start_time = time.time()
                 is_processing = True
 
                 history_text = get_history_text()
