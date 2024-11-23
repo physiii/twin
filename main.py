@@ -21,26 +21,17 @@ from audio import (
 from search import run_search
 from transcribe import transcribe_audio, init_transcription_model
 from rapidfuzz import fuzz
-
 from webserver import start_webserver
-from command_processor import (
-    process_command_text,
-    process_mqtt_event_data,
-)
-import aiomqtt
+from command_processor import process_command_text
 import uuid
 import os
-from quality_control import generate_quality_control_report  # Ensure this import is present
-
+from quality_control import generate_quality_control_report
 from logger import setup_logging
+
 setup_logging()
 logger = logging.getLogger('twin')
 
-
-# Ensure the 'logs' directory exists
 os.makedirs('logs', exist_ok=True)
-
-# Initialize logging with a timestamped log file
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 log_filename = f'logs/twin_{timestamp}.log'
 logging.basicConfig(
@@ -51,96 +42,55 @@ logging.basicConfig(
         RotatingFileHandler(log_filename, maxBytes=5*1024*1024, backupCount=5)
     ]
 )
-
-# Suppress Whisper logs to ERROR level
+logger = logging.getLogger("twin")
 logging.getLogger("faster_whisper").setLevel(logging.ERROR)
 
-# Configuration Parameters
 DEVICE_TYPE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE_TYPE == "cuda" else "float32"
 SAMPLE_RATE = 16000
-BUFFER_DURATION = 3  # For responsiveness
+BUFFER_DURATION = 3
 BUFFER_SIZE = SAMPLE_RATE * BUFFER_DURATION
-SMALL_BUFFER_DURATION = 0.2  # 200 milliseconds
+SMALL_BUFFER_DURATION = 0.2
 SMALL_BUFFER_SIZE = int(SAMPLE_RATE * SMALL_BUFFER_DURATION)
 LANGUAGE = "en"
 SIMILARITY_THRESHOLD = 85
-COOLDOWN_PERIOD = 0  # seconds
-RISK_THRESHOLD = 0.5  # Risk threshold for command execution
-HISTORY_BUFFER_SIZE = 4  # Number of recent transcriptions to keep
-HISTORY_MAX_CHARS = 4000  # Max chars to send to the LLM
-WAKE_TIMEOUT = 24  # Time in seconds the system remains "awake" after wake phrase
-SILENCE_THRESHOLD = 0.0001  # Threshold for silence detection
+COOLDOWN_PERIOD = 0
+RISK_THRESHOLD = 0.5
+HISTORY_BUFFER_SIZE = 4
+HISTORY_MAX_CHARS = 4000
+WAKE_TIMEOUT = 24
+SILENCE_THRESHOLD = 0.0001
 CHANNELS = 1
 CHUNK_SIZE = 1024
 
-# Define thresholds
 AMY_DISTANCE_THRESHOLD = 1.2
 NA_DISTANCE_THRESHOLD = 1.4
 HIP_DISTANCE_THRESHOLD = 1.1
 WAKE_DISTANCE_THRESHOLD = 0.30
-CONDITIONS_DISTANCE_THRESHOLD = 1.0
-MODES_DISTANCE_THRESHOLD = 1.0
 
-# TTS configuration
 TTS_PYTHON_PATH = "/home/andy/venvs/tts-env/bin/python"
 TTS_SCRIPT_PATH = "/home/andy/scripts/tts/tts.py"
 
-# Wake and Sleep Sound Configuration
 WAKE_SOUND_FILE = "/media/mass/scripts/twin/wake.wav"
 SLEEP_SOUND_FILE = "/media/mass/scripts/twin/sleep.wav"
 
-# Define the wake phrases and similarity threshold
 WAKE_PHRASES = ["Hey computer.", "Hey twin"]
 FUZZY_SIMILARITY_THRESHOLD = 60
 
-# MQTT Configuration
-MQTT_BROKER_HOST = "192.168.1.42"
-MQTT_BROKER_PORT = 1883
-MQTT_USERNAME = "andy"
-MQTT_PASSWORD = "qscwdvpk"
-MQTT_TOPICS = ["radar"]
-
-# Parse command-line arguments
-parser = ArgumentParser(
-    description="Live transcription with flexible inference and embedding options."
-)
-parser.add_argument(
-    "-e",
-    "--execute",
-    action="store_true",
-    help="Execute the commands returned by the inference model",
-)
-parser.add_argument(
-    "--remote-inference",
-    help="Use remote inference. Specify the full URL for the inference server.",
-)
-parser.add_argument(
-    "--remote-store", help="Specify the URL for the vector store server."
-)
-parser.add_argument(
-    "-s", "--silent", action="store_true", help="Disable TTS playback"
-)
-parser.add_argument(
-    "--source", default=None, help="Manually set the audio source (index or name)"
-)
-parser.add_argument(
-    "--whisper-model",
-    default="tiny.en",
-    help="Specify the Whisper model size (default: tiny.en)",
-)
-parser.add_argument(
-    "--remote-transcribe",
-    help="Use remote transcription. Specify the URL for the transcription server.",
-)
+parser = ArgumentParser(description="Live transcription with flexible inference and embedding options.")
+parser.add_argument("-e", "--execute", action="store_true", help="Execute the commands returned by the inference model")
+parser.add_argument("--remote-inference", help="Use remote inference. Specify the full URL for the inference server.")
+parser.add_argument("--remote-store", help="Specify the URL for the vector store server.")
+parser.add_argument("-s", "--silent", action="store_true", help="Disable TTS playback")
+parser.add_argument("--source", default=None, help="Manually set the audio source (index or name)")
+parser.add_argument("--whisper-model", default="tiny.en", help="Specify the Whisper model size (default: tiny.en)")
+parser.add_argument("--remote-transcribe", help="Use remote transcription. Specify the URL for the transcription server.")
 args = parser.parse_args()
 
-# Store the remote URLs
 REMOTE_STORE_URL = args.remote_store
 REMOTE_INFERENCE_URL = args.remote_inference
 REMOTE_TRANSCRIBE_URL = args.remote_transcribe
 
-# Circular buffers for audio data and transcriptions
 audio_buffer = deque(maxlen=BUFFER_SIZE)
 small_audio_buffer = deque(maxlen=SMALL_BUFFER_SIZE)
 audio_queue = queue.Queue()
@@ -148,29 +98,21 @@ recent_transcriptions = deque(maxlen=10)
 history_buffer = deque(maxlen=HISTORY_BUFFER_SIZE)
 running_log = []
 
-# Global state variables
 is_awake = False
 wake_start_time = None
 is_processing = False
 did_inference = False
 
-# Command queue for external commands
 command_queue = asyncio.Queue()
 
-# Global variables to track media state
 playerctl_was_playing = False
 vlc_was_running = False
 
 def get_timestamp():
-    """Returns the current timestamp as a string."""
     USE_TIMESTAMP = False
-    if USE_TIMESTAMP:
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    else:
-        return ""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S") if USE_TIMESTAMP else ""
 
 def get_history_text():
-    """Retrieves and trims the history text for inference."""
     history_text = " ".join(history_buffer)
     if len(history_text) > HISTORY_MAX_CHARS:
         history_text = history_text[-HISTORY_MAX_CHARS:]
@@ -178,126 +120,58 @@ def get_history_text():
     return history_text
 
 def calculate_rms(audio_data):
-    """Calculates the root mean square of the audio data."""
     if len(audio_data) == 0:
         return np.nan
     return np.sqrt(np.mean(np.square(audio_data)))
 
-async def mqtt_event_loop(context):
-    """Handles MQTT events asynchronously."""
-    try:
-        logger.info("[MQTT] Connecting to MQTT broker...")
-        # Connect to the MQTT broker with authentication
-        async with aiomqtt.Client(
-            hostname=MQTT_BROKER_HOST,
-            port=MQTT_BROKER_PORT,
-            username=MQTT_USERNAME,
-            password=MQTT_PASSWORD,
-        ) as client:
-            logger.info("[MQTT] Connected to MQTT broker.")
-            # Subscribe to the specified topics
-            for topic in MQTT_TOPICS:
-                await client.subscribe(topic)
-                logger.info(f"[MQTT] Subscribed to MQTT topic: '{topic}'")
-
-            # Use client.messages as an async iterator
-            async for message in client.messages:
-                topic = message.topic.value  # Use .value to get the topic string
-                payload = message.payload.decode()
-                logger.info(f"[MQTT] Received MQTT message on topic '{topic}': {payload}")
-                try:
-                    event_data = json.loads(payload)
-                    await process_mqtt_event_data(event_data, context)
-                except json.JSONDecodeError:
-                    logger.error(f"[MQTT] Invalid JSON in MQTT message payload: {payload}")
-                except Exception as e:
-                    logger.exception(f"[MQTT] Error processing MQTT message: {e}")
-    except aiomqtt.MQTTException as error:
-        logger.error(f"[MQTT] MQTT connection error: {error}")
-    except Exception as e:
-        logger.exception(f"[MQTT] Unexpected error in MQTT event loop: {e}")
-
 async def pause_media_players():
-    """Pauses media players if they are playing and updates state variables."""
     global playerctl_was_playing, vlc_was_running
     loop = asyncio.get_running_loop()
 
-    # Check playerctl status
     try:
-        result = await loop.run_in_executor(
-            None, lambda: subprocess.run(['playerctl', 'status'], capture_output=True, text=True)
-        )
-        status = result.stdout.strip()
-        if status == 'Playing':
-            await loop.run_in_executor(
-                None, lambda: subprocess.run(['playerctl', 'pause'])
-            )
+        result = await loop.run_in_executor(None, lambda: subprocess.run(['playerctl', 'status'], capture_output=True, text=True))
+        if result.stdout.strip() == 'Playing':
+            await loop.run_in_executor(None, lambda: subprocess.run(['playerctl', 'pause']))
             playerctl_was_playing = True
-        else:
-            playerctl_was_playing = False
     except Exception as e:
         logger.error(f"Error checking or pausing playerctl: {e}")
         playerctl_was_playing = False
 
-    # Check vlc state
     try:
-        result = await loop.run_in_executor(
-            None, lambda: subprocess.run(['ps', '-C', 'vlc', '-o', 'state'], capture_output=True, text=True)
-        )
-        states = result.stdout.strip().split('\n')[1:]  # Skip the header
-        # If any process is in state 'S' (running)
+        result = await loop.run_in_executor(None, lambda: subprocess.run(['ps', '-C', 'vlc', '-o', 'state'], capture_output=True, text=True))
+        states = result.stdout.strip().split('\n')[1:]
         if 'S' in states:
-            await loop.run_in_executor(
-                None, lambda: subprocess.run(['pkill', '-STOP', 'vlc'])
-            )
+            await loop.run_in_executor(None, lambda: subprocess.run(['pkill', '-STOP', 'vlc']))
             vlc_was_running = True
-        else:
-            vlc_was_running = False
     except Exception as e:
         logger.error(f"Error checking or pausing vlc: {e}")
         vlc_was_running = False
 
 async def resume_media_players():
-    """Resumes media players if they were paused by the assistant."""
     global playerctl_was_playing, vlc_was_running
     loop = asyncio.get_running_loop()
 
-    # Resume playerctl if we had paused it
     if playerctl_was_playing:
         try:
-            result = await loop.run_in_executor(
-                None, lambda: subprocess.run(['playerctl', 'status'], capture_output=True, text=True)
-            )
-            status = result.stdout.strip()
-            if status == 'Paused':
-                await loop.run_in_executor(
-                    None, lambda: subprocess.run(['playerctl', 'play'])
-                )
+            result = await loop.run_in_executor(None, lambda: subprocess.run(['playerctl', 'status'], capture_output=True, text=True))
+            if result.stdout.strip() == 'Paused':
+                await loop.run_in_executor(None, lambda: subprocess.run(['playerctl', 'play']))
         except Exception as e:
             logger.error(f"Error resuming playerctl: {e}")
 
-    # Resume vlc if we had paused it
     if vlc_was_running:
         try:
-            # Check if vlc processes are in state 'T' (stopped)
-            result = await loop.run_in_executor(
-                None, lambda: subprocess.run(['ps', '-C', 'vlc', '-o', 'state'], capture_output=True, text=True)
-            )
-            states = result.stdout.strip().split('\n')[1:]  # Skip the header
+            result = await loop.run_in_executor(None, lambda: subprocess.run(['ps', '-C', 'vlc', '-o', 'state'], capture_output=True, text=True))
+            states = result.stdout.strip().split('\n')[1:]
             if 'T' in states:
-                await loop.run_in_executor(
-                    None, lambda: subprocess.run(['pkill', '-CONT', 'vlc'])
-                )
+                await loop.run_in_executor(None, lambda: subprocess.run(['pkill', '-CONT', 'vlc']))
         except Exception as e:
             logger.error(f"Error resuming vlc: {e}")
 
 async def process_buffer(transcription_model, use_remote_transcription, remote_transcribe_url, context):
-    """Processes the audio buffer for transcription and inference."""
     await asyncio.sleep(0.1)
     global is_awake, wake_start_time, is_processing, did_inference
-    process_start = time.time()
 
-    # Check for external commands in the command queue
     if not command_queue.empty():
         command_text = await command_queue.get()
         logger.info(f"[Command] Received external command: {command_text}")
@@ -311,7 +185,6 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
             did_inference = True
         return
 
-    # Audio processing
     small_audio_data = np.array(list(small_audio_buffer), dtype=np.float32)
     small_rms = calculate_rms(small_audio_data)
 
@@ -327,7 +200,6 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
     if rms < SILENCE_THRESHOLD:
         return
 
-    # Transcription
     transcriptions, _ = await transcribe_audio(
         model=transcription_model,
         audio_data=audio_data,
@@ -344,7 +216,6 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
         logger.info(f"[Source] {get_timestamp()} {text}")
         running_log.append(f"{get_timestamp()} [Transcription] {text}")
 
-        # Collect transcriptions
         if is_awake and 'session_data' in context and context['session_data']:
             context['session_data']['after_transcriptions'].append(text)
             history_buffer.append(text)
@@ -359,13 +230,9 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
         for i in range(len(words) - window_size + 1):
             window = " ".join(words[i : i + window_size])
 
-            # Wake Phrase Search using vector search
-            wake_results, _ = await run_search(
-                window, "wake", remote_store_url=REMOTE_STORE_URL
-            )
+            wake_results, _ = await run_search(window, "wake", remote_store_url=REMOTE_STORE_URL)
             relevant_wake = [r for r in wake_results if r[1] < WAKE_DISTANCE_THRESHOLD]
 
-            # Fuzzy Match using RapidFuzz for all wake phrases
             fuzzy_matches = []
             for phrase in WAKE_PHRASES:
                 similarity = fuzz.token_set_ratio(window, phrase)
@@ -380,10 +247,8 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
                 wake_start_time = time.time()
                 did_inference = False
 
-                # Pause media players
                 await pause_media_players()
 
-                # Build the log message
                 log_message = "[Wake] System awakened by phrase(s): "
                 if relevant_wake:
                     for match in relevant_wake:
@@ -395,10 +260,8 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
 
                 logger.info(log_message)
 
-                # Play Wake Sound Asynchronously
                 asyncio.create_task(play_wake_sound(WAKE_SOUND_FILE))
 
-                # Initialize session data
                 context['session_data'] = {
                     "session_id": str(uuid.uuid4()),
                     "start_time": datetime.now().isoformat(),
@@ -416,29 +279,20 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
                 break
 
         if is_awake and ((time.time() - wake_start_time) <= WAKE_TIMEOUT or is_processing):
-
-            # Search
             amygdala_results, _ = await run_search(text, "amygdala", remote_store_url=REMOTE_STORE_URL)
             accumbens_results, _ = await run_search(text, "na", remote_store_url=REMOTE_STORE_URL)
             hippocampus_results, _ = await run_search(text, "hippocampus", remote_store_url=REMOTE_STORE_URL)
-            conditions_results, _ = await run_search(text, "conditions", remote_store_url=REMOTE_STORE_URL)
-            modes_results, _ = await run_search(text, "modes", remote_store_url=REMOTE_STORE_URL)
 
             relevant_amygdala = [r for r in amygdala_results if r[1] < AMY_DISTANCE_THRESHOLD]
             relevant_accumbens = [r for r in accumbens_results if r[1] < NA_DISTANCE_THRESHOLD]
             relevant_hippocampus = [r for r in hippocampus_results if r[1] < HIP_DISTANCE_THRESHOLD]
-            relevant_conditions = [r for r in conditions_results if r[1] < CONDITIONS_DISTANCE_THRESHOLD]
-            relevant_modes = [r for r in modes_results if r[1] < MODES_DISTANCE_THRESHOLD]
 
-            # Update vectorstore results
             context['session_data']['vectorstore_results'].append({
                 "timestamp": datetime.now().isoformat(),
                 "transcription": text,
                 "amygdala_results": amygdala_results,
                 "accumbens_results": accumbens_results,
                 "hippocampus_results": hippocampus_results,
-                "conditions_results": conditions_results,
-                "modes_results": modes_results,
             })
 
             if relevant_amygdala and relevant_accumbens:
@@ -454,33 +308,26 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
                     did_inference = True
                 is_processing = False
             else:
-                logger.debug(
-                    f"Thresholds not met. Amygdala: {bool(relevant_amygdala)}, Accumbens: {bool(relevant_accumbens)}"
-                )
+                logger.debug(f"Thresholds not met. Amygdala: {bool(relevant_amygdala)}, Accumbens: {bool(relevant_accumbens)}")
                 is_processing = False
         else:
             is_processing = False
 
-    # Reset awake state after timeout if not processing
     if not is_processing and wake_start_time and (time.time() - wake_start_time) > WAKE_TIMEOUT:
         if is_awake:
             logger.info(f"[Wake] System asleep after {WAKE_TIMEOUT} seconds.")
             if not did_inference:
                 asyncio.create_task(play_sleep_sound(SLEEP_SOUND_FILE))
-            # Complete session data
             context['session_data']['end_time'] = datetime.now().isoformat()
             context['session_data']['duration'] = time.time() - wake_start_time
             context['session_data']['complete_transcription'] = " ".join(history_buffer)
-            # Generate quality control report
             await generate_quality_control_report(context['session_data'], context)
             context['session_data'] = None
-            # Resume media players
             await resume_media_players()
         is_awake = False
         did_inference = False
 
 async def main():
-    """Main function to start the voice assistant."""
     log_available_audio_devices()
     devices = sd.query_devices()
     input_device = ""
@@ -504,11 +351,9 @@ async def main():
         else init_transcription_model(args.whisper_model, DEVICE_TYPE, COMPUTE_TYPE)
     )
 
-    # Load commands from na.txt to build the commands vector store
     with open("/media/mass/scripts/twin/na.txt", "r") as f:
         na_commands = [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
-    # Create context for shared variables
     context = {
         "REMOTE_STORE_URL": REMOTE_STORE_URL,
         "REMOTE_INFERENCE_URL": REMOTE_INFERENCE_URL,
@@ -521,23 +366,15 @@ async def main():
         "AMY_DISTANCE_THRESHOLD": AMY_DISTANCE_THRESHOLD,
         "NA_DISTANCE_THRESHOLD": NA_DISTANCE_THRESHOLD,
         "HIP_DISTANCE_THRESHOLD": HIP_DISTANCE_THRESHOLD,
-        "CONDITIONS_DISTANCE_THRESHOLD": CONDITIONS_DISTANCE_THRESHOLD,
-        "MODES_DISTANCE_THRESHOLD": MODES_DISTANCE_THRESHOLD,
         "command_queue": command_queue,
-        "current_mode": "Wake Mode",
         "available_commands": na_commands,
-        "session_data": None,  # Ensure session_data is initialized
+        "session_data": None,
         "QC_REPORT_DIR": "reports",
     }
 
-    # Ensure the reports directory exists
     os.makedirs(context['QC_REPORT_DIR'], exist_ok=True)
 
-    # Initialize web server
     runner = await start_webserver(context)
-
-    # Start MQTT event loop
-    mqtt_task = asyncio.create_task(mqtt_event_loop(context))
 
     try:
         with sd.InputStream(
@@ -578,7 +415,6 @@ async def main():
         logger.exception("An error occurred during execution.")
     finally:
         await runner.cleanup()
-        mqtt_task.cancel()
 
 if __name__ == "__main__":
     asyncio.run(main())

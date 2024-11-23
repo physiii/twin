@@ -17,6 +17,7 @@ NOISE_PHRASES = [
     "thank you",
     "thank you very much",
     "okay"
+    "I'm sorry",
 ]
 
 # Transcription Model Initialization
