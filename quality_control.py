@@ -114,17 +114,23 @@ async def generate_quality_control_report(session_data, context):
         end_time = session_data.get('end_time', 'N/A')
         duration = session_data.get('duration', 'N/A')
         wake_phrase = session_data.get('wake_phrase', 'N/A')
-        user_satisfaction_score = session_data.get('user_satisfaction_score', 'N/A')
+
+        # Retrieve and validate the user satisfaction score
+        user_satisfaction_score = session_data.get('user_satisfaction_score')
+        if isinstance(user_satisfaction_score, (int, float)):
+            user_satisfaction_score = float(user_satisfaction_score)
+        else:
+            user_satisfaction_score = 0.0  # Default to 0.0 if not provided or invalid
 
         # Process commands and compute session metrics
         commands_executed = session_data.get('commands_executed', [])
         total_commands = len(commands_executed)
         successful_commands = sum(1 for cmd in commands_executed if cmd.get('success'))
         failed_commands = total_commands - successful_commands
-        success_rate = (successful_commands / total_commands * 100) if total_commands > 0 else 0
+        success_rate = (successful_commands / total_commands * 100) if total_commands > 0 else 0.0
         average_response_time = (
-            sum(cmd.get('response_time', 0) for cmd in commands_executed) / total_commands
-        ) if total_commands > 0 else 0
+            sum(cmd.get('response_time', 0.0) for cmd in commands_executed) / total_commands
+        ) if total_commands > 0 else 0.0
 
         # Update cumulative metrics
         cumulative_metrics = load_cumulative_metrics()
@@ -162,7 +168,7 @@ async def generate_quality_control_report(session_data, context):
             failed_commands=failed_commands,
             success_rate=round(success_rate, 2),
             average_response_time=round(average_response_time, 2),
-            user_satisfaction_score=user_satisfaction_score
+            user_satisfaction_score=round(user_satisfaction_score, 2)
         )
 
         # Use the remote_inference method
@@ -204,7 +210,9 @@ def load_cumulative_metrics():
             'cumulative_failed_commands': 0,
             'cumulative_success_rate': 0.0,
             'cumulative_average_response_time': 0.0,
-            'cumulative_user_satisfaction_score': 0.0
+            'cumulative_user_satisfaction_score': 0.0,
+            'total_response_time': 0.0,
+            'total_user_satisfaction': 0.0
         }
 
 def save_cumulative_metrics(metrics):
@@ -230,14 +238,18 @@ def update_cumulative_metrics(metrics, total_commands, successful_commands, fail
         )
 
     # Update cumulative average response time
-    total_response_time = metrics.get('total_response_time', 0.0) + (average_response_time * total_commands)
-    metrics['total_response_time'] = total_response_time
-    metrics['cumulative_average_response_time'] = total_response_time / metrics['cumulative_total_commands'] if metrics['cumulative_total_commands'] > 0 else 0.0
+    metrics['total_response_time'] += average_response_time * total_commands
+    if metrics['cumulative_total_commands'] > 0:
+        metrics['cumulative_average_response_time'] = metrics['total_response_time'] / metrics['cumulative_total_commands']
+    else:
+        metrics['cumulative_average_response_time'] = 0.0
 
     # Update cumulative user satisfaction score
-    total_user_satisfaction = metrics.get('total_user_satisfaction', 0.0) + user_satisfaction_score
-    metrics['total_user_satisfaction'] = total_user_satisfaction
-    metrics['cumulative_user_satisfaction_score'] = total_user_satisfaction / metrics['total_sessions'] if metrics['total_sessions'] > 0 else 0.0
+    metrics['total_user_satisfaction'] += user_satisfaction_score
+    if metrics['total_sessions'] > 0:
+        metrics['cumulative_user_satisfaction_score'] = metrics['total_user_satisfaction'] / metrics['total_sessions']
+    else:
+        metrics['cumulative_user_satisfaction_score'] = 0.0
 
     return metrics
 

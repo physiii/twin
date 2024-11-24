@@ -1,4 +1,3 @@
-
 from collections import deque
 from datetime import datetime
 import asyncio
@@ -107,9 +106,6 @@ did_inference = False
 
 command_queue = asyncio.Queue()
 
-playerctl_was_playing = False
-vlc_was_running = False
-
 def get_timestamp():
     USE_TIMESTAMP = False
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S") if USE_TIMESTAMP else ""
@@ -127,48 +123,22 @@ def calculate_rms(audio_data):
     return np.sqrt(np.mean(np.square(audio_data)))
 
 async def pause_media_players():
-    global playerctl_was_playing, vlc_was_running
     loop = asyncio.get_running_loop()
 
     try:
         result = await loop.run_in_executor(None, lambda: subprocess.run(['playerctl', 'status'], capture_output=True, text=True))
         if result.stdout.strip() == 'Playing':
             await loop.run_in_executor(None, lambda: subprocess.run(['playerctl', 'pause']))
-            playerctl_was_playing = True
     except Exception as e:
         logger.error(f"Error checking or pausing playerctl: {e}")
-        playerctl_was_playing = False
 
     try:
         result = await loop.run_in_executor(None, lambda: subprocess.run(['ps', '-C', 'vlc', '-o', 'state'], capture_output=True, text=True))
         states = result.stdout.strip().split('\n')[1:]
         if 'S' in states:
             await loop.run_in_executor(None, lambda: subprocess.run(['pkill', '-STOP', 'vlc']))
-            vlc_was_running = True
     except Exception as e:
         logger.error(f"Error checking or pausing vlc: {e}")
-        vlc_was_running = False
-
-async def resume_media_players():
-    global playerctl_was_playing, vlc_was_running
-    loop = asyncio.get_running_loop()
-
-    if playerctl_was_playing:
-        try:
-            result = await loop.run_in_executor(None, lambda: subprocess.run(['playerctl', 'status'], capture_output=True, text=True))
-            if result.stdout.strip() == 'Paused':
-                await loop.run_in_executor(None, lambda: subprocess.run(['playerctl', 'play']))
-        except Exception as e:
-            logger.error(f"Error resuming playerctl: {e}")
-
-    if vlc_was_running:
-        try:
-            result = await loop.run_in_executor(None, lambda: subprocess.run(['ps', '-C', 'vlc', '-o', 'state'], capture_output=True, text=True))
-            states = result.stdout.strip().split('\n')[1:]
-            if 'T' in states:
-                await loop.run_in_executor(None, lambda: subprocess.run(['pkill', '-CONT', 'vlc']))
-        except Exception as e:
-            logger.error(f"Error resuming vlc: {e}")
 
 async def process_buffer(transcription_model, use_remote_transcription, remote_transcribe_url, context):
     await asyncio.sleep(0.1)
@@ -338,7 +308,6 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
             context['session_data']['complete_transcription'] = " ".join(history_buffer)
             await generate_quality_control_report(context['session_data'], context)
             context['session_data'] = None
-            await resume_media_players()
         is_awake = False
         did_inference = False
 
