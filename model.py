@@ -7,7 +7,7 @@ import os
 import time
 import json
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("twin")
 
 class Model:
     def __init__(self, gpt4o_url, gpt4o_key):
@@ -66,6 +66,8 @@ class Model:
                     if response.status == 200:
                         response_data = await response.json()
                         response_text = response_data.get("response", "").strip()
+                        logger.debug(f"Prompt: {prompt}")
+                        logger.debug(f"Response: {response_text}")
                         return response_text, time.time() - start_time
                     else:
                         error_message = await response.text()

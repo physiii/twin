@@ -32,7 +32,7 @@ class ColoredFormatter(logging.Formatter):
 logger = logging.getLogger('twin')
 
 def setup_logging(log_level: Optional[str] = None) -> None:
-    """Configure application logging with color-coded output"""
+    """Configure application logging with unified output"""
     
     # Set log level
     level = getattr(logging, (log_level or 'DEBUG').upper())
@@ -48,26 +48,27 @@ def setup_logging(log_level: Optional[str] = None) -> None:
     
     # Set up log file
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-    trade_env = os.getenv('TRADE_ENV', 'dev').lower()
-    log_file = os.path.join(log_dir, f"trade_{trade_env}_{timestamp}.log")
+    env = os.getenv('ENV', 'dev').lower()
+    log_file = os.path.join(log_dir, f"twin_{timestamp}.log")
     
-    # File handler configuration
-    file_formatter = logging.Formatter(
-        '%(asctime)s [%(levelname)s] %(filename)s:%(lineno)d - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setFormatter(file_formatter)
-    file_handler.setLevel(logging.DEBUG)
-    
-    # Console handler configuration
-    console_formatter = ColoredFormatter(
+    # Unified formatter
+    unified_formatter = logging.Formatter(
         '%(asctime)s [%(levelname)s] %(message)s',
         datefmt='%H:%M:%S'
     )
+    
+    # File handler configuration
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(unified_formatter)
+    file_handler.setLevel(logging.DEBUG)  # Capture all log levels
+    
+    # Console handler configuration
     console_handler = logging.StreamHandler()
-    console_handler.setFormatter(console_formatter)
-    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(ColoredFormatter(
+        '%(asctime)s [%(levelname)s] %(message)s',
+        datefmt='%H:%M:%S'
+    ))
+    console_handler.setLevel(logging.INFO)  # Capture INFO and above levels
     
     # Add handlers
     logger.addHandler(file_handler)
@@ -78,3 +79,4 @@ def setup_logging(log_level: Optional[str] = None) -> None:
         logging.getLogger(lib).setLevel(logging.WARNING)
     
     logger.info(f"Logging initialized → {log_file}")
+
