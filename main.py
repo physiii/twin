@@ -64,8 +64,8 @@ SILENCE_THRESHOLD = 0.0001
 CHANNELS = 1
 CHUNK_SIZE = 1024
 
-AMY_DISTANCE_THRESHOLD = 1.2
-NA_DISTANCE_THRESHOLD = 1.4
+AMY_DISTANCE_THRESHOLD = 1.1
+NA_DISTANCE_THRESHOLD = 1.2
 HIP_DISTANCE_THRESHOLD = 1.1
 WAKE_DISTANCE_THRESHOLD = 0.30
 
@@ -97,7 +97,7 @@ small_audio_buffer = deque(maxlen=SMALL_BUFFER_SIZE)
 audio_queue = queue.Queue()
 recent_transcriptions = deque(maxlen=10)
 history_buffer = deque(maxlen=HISTORY_BUFFER_SIZE)
-running_log = []
+running_log = deque(maxlen=1000)  # Limit to last 1000 entries
 
 is_awake = False
 wake_start_time = None
@@ -143,6 +143,12 @@ async def pause_media_players():
 async def process_buffer(transcription_model, use_remote_transcription, remote_transcribe_url, context):
     await asyncio.sleep(0.1)
     global is_awake, wake_start_time, is_processing, did_inference
+
+    # Log sizes of data structures
+    logger.info(f"running_log size: {len(running_log)}")
+    logger.info(f"audio_buffer size: {len(audio_buffer)}")
+    logger.info(f"small_audio_buffer size: {len(small_audio_buffer)}")
+    logger.info(f"history_buffer size: {len(history_buffer)}")
 
     if not command_queue.empty():
         command_text = await command_queue.get()
