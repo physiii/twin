@@ -36,7 +36,7 @@ def is_noise(text):
     """Check if the text is a known noise phrase."""
     return any(noise.lower() in text.lower() for noise in NOISE_PHRASES)
 
-def filter_segments(segments, confidence_threshold=0.7, min_duration=0.5, max_duration=10.0):
+def filter_segments(segments, confidence_threshold=0.6, min_duration=0.5, max_duration=10.0):
     """Filter segments based on confidence, duration, and noise phrases."""
     filtered = []
     for segment in segments:
@@ -89,7 +89,7 @@ async def transcribe_audio(model=None, audio_data=None, language="en", similarit
             suppress_tokens=[2, 3], 
             suppress_blank=True, 
             condition_on_previous_text=True, 
-            no_speech_threshold=0.5,
+            no_speech_threshold=0.4,
             vad_filter=True,  # Enable VAD
             vad_parameters=dict(min_silence_duration_ms=500)
         )

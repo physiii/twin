@@ -60,7 +60,7 @@ RISK_THRESHOLD = 0.5
 HISTORY_BUFFER_SIZE = 4
 HISTORY_MAX_CHARS = 4000
 WAKE_TIMEOUT = 24
-SILENCE_THRESHOLD = 0.0001
+SILENCE_THRESHOLD = 0.00005
 CHANNELS = 1
 CHUNK_SIZE = 1024
 
@@ -84,7 +84,8 @@ parser.add_argument("--remote-inference", help="Use remote inference. Specify th
 parser.add_argument("--remote-store", help="Specify the URL for the vector store server.")
 parser.add_argument("-s", "--silent", action="store_true", help="Disable TTS playback")
 parser.add_argument("--source", default=None, help="Manually set the audio source (index or name)")
-parser.add_argument("--whisper-model", default="tiny.en", help="Specify the Whisper model size (default: tiny.en)")
+# whisper models: tiny, base, small, medium, large, turbo
+parser.add_argument("--whisper-model", default="turbo", help="Specify the Whisper model size (default: tiny.en)")
 parser.add_argument("--remote-transcribe", help="Use remote transcription. Specify the URL for the transcription server.")
 args = parser.parse_args()
 
@@ -145,10 +146,10 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
     global is_awake, wake_start_time, is_processing, did_inference
 
     # Log sizes of data structures
-    logger.info(f"running_log size: {len(running_log)}")
-    logger.info(f"audio_buffer size: {len(audio_buffer)}")
-    logger.info(f"small_audio_buffer size: {len(small_audio_buffer)}")
-    logger.info(f"history_buffer size: {len(history_buffer)}")
+    # logger.info(f"running_log size: {len(running_log)}")
+    # logger.info(f"audio_buffer size: {len(audio_buffer)}")
+    # logger.info(f"small_audio_buffer size: {len(small_audio_buffer)}")
+    # logger.info(f"history_buffer size: {len(history_buffer)}")
 
     if not command_queue.empty():
         command_text = await command_queue.get()
