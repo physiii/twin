@@ -26,23 +26,20 @@ import os
 from quality_control import generate_quality_control_report
 
 import logging
-from logging.handlers import RotatingFileHandler
-from logger import setup_logging
 
-setup_logging()
-logger = logging.getLogger('twin')
-
+# Setup logging to both file and stdout so systemd can capture logs
 os.makedirs('logs', exist_ok=True)
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-log_filename = f'logs/twin_{timestamp}.log'
+log_file = 'logs/continuous.log'
+handlers = [
+    logging.FileHandler(log_file, mode='a'),
+    logging.StreamHandler()  # For systemd journal
+]
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        RotatingFileHandler(log_filename, maxBytes=5*1024*1024, backupCount=5)
-    ]
+    handlers=handlers
 )
+
 logger = logging.getLogger("twin")
 logging.getLogger("faster_whisper").setLevel(logging.ERROR)
 
@@ -84,7 +81,6 @@ parser.add_argument("--remote-inference", help="Use remote inference. Specify th
 parser.add_argument("--remote-store", help="Specify the URL for the vector store server.")
 parser.add_argument("-s", "--silent", action="store_true", help="Disable TTS playback")
 parser.add_argument("--source", default=None, help="Manually set the audio source (index or name)")
-# whisper models: tiny, base, small, medium, large, turbo
 parser.add_argument("--whisper-model", default="turbo", help="Specify the Whisper model size (default: tiny.en)")
 parser.add_argument("--remote-transcribe", help="Use remote transcription. Specify the URL for the transcription server.")
 args = parser.parse_args()
@@ -98,7 +94,7 @@ small_audio_buffer = deque(maxlen=SMALL_BUFFER_SIZE)
 audio_queue = queue.Queue()
 recent_transcriptions = deque(maxlen=10)
 history_buffer = deque(maxlen=HISTORY_BUFFER_SIZE)
-running_log = deque(maxlen=1000)  # Limit to last 1000 entries
+running_log = deque(maxlen=1000)
 
 is_awake = False
 wake_start_time = None
@@ -115,7 +111,7 @@ def get_history_text():
     history_text = " ".join(history_buffer)
     if len(history_text) > HISTORY_MAX_CHARS:
         history_text = history_text[-HISTORY_MAX_CHARS:]
-        history_text = history_text[history_text.index(" ") + 1 :]
+        history_text = history_text[history_text.index(" ") + 1:]
     return history_text
 
 def calculate_rms(audio_data):
@@ -125,7 +121,6 @@ def calculate_rms(audio_data):
 
 async def pause_media_players():
     loop = asyncio.get_running_loop()
-
     try:
         result = await loop.run_in_executor(None, lambda: subprocess.run(['playerctl', 'status'], capture_output=True, text=True))
         if result.stdout.strip() == 'Playing':
@@ -145,12 +140,6 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
     await asyncio.sleep(0.1)
     global is_awake, wake_start_time, is_processing, did_inference
 
-    # Log sizes of data structures
-    # logger.info(f"running_log size: {len(running_log)}")
-    # logger.info(f"audio_buffer size: {len(audio_buffer)}")
-    # logger.info(f"small_audio_buffer size: {len(small_audio_buffer)}")
-    # logger.info(f"history_buffer size: {len(history_buffer)}")
-
     if not command_queue.empty():
         command_text = await command_queue.get()
         logger.info(f"[Command] Received external command: {command_text}")
@@ -161,7 +150,6 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
         inference_response = await process_command_text(command_text, context)
         if inference_response:
             did_inference = True
-            # Reset timeout when a command was actually executed
             if inference_response.get('commands') and context['args'].execute:
                 wake_start_time = time.time()
         logger.info(f"[Inference] {inference_response}")
@@ -178,7 +166,6 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
         return
 
     rms = calculate_rms(audio_data)
-
     if rms < SILENCE_THRESHOLD:
         return
 
@@ -268,7 +255,6 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
 
             relevant_amygdala = [r for r in amygdala_results if r[1] < AMY_DISTANCE_THRESHOLD]
             relevant_accumbens = [r for r in accumbens_results if r[1] < NA_DISTANCE_THRESHOLD]
-            relevant_hippocampus = [r for r in hippocampus_results if r[1] < HIP_DISTANCE_THRESHOLD]
 
             context['session_data']['vectorstore_results'].append({
                 "timestamp": datetime.now().isoformat(),
@@ -280,7 +266,6 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
 
             if relevant_amygdala and relevant_accumbens:
                 is_processing = True
-
                 history_text = get_history_text()
                 prompt_text = f"{get_timestamp()} [Prompt] {history_text}"
                 running_log.append(prompt_text)
@@ -288,7 +273,6 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
                 inference_response = await process_command_text(history_text, context)
                 if inference_response:
                     did_inference = True
-                    # Reset timeout when a command was actually executed
                     if inference_response.get('commands') and context['args'].execute:
                         wake_start_time = time.time()
                         logger.info("[Wake] Timeout reset due to command execution")
@@ -361,7 +345,7 @@ async def main():
         "available_commands": na_commands,
         "session_data": None,
         "QC_REPORT_DIR": "reports",
-        "GENERAL_REPORT_FILE": "general_report.txt",  # Added for general report tracking
+        "GENERAL_REPORT_FILE": "general_report.txt",
     }
 
     os.makedirs(context['QC_REPORT_DIR'], exist_ok=True)

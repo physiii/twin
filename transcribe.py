@@ -89,9 +89,9 @@ async def transcribe_audio(model=None, audio_data=None, language="en", similarit
             suppress_tokens=[2, 3], 
             suppress_blank=True, 
             condition_on_previous_text=True, 
-            no_speech_threshold=0.4,
+            no_speech_threshold=0.1,
             vad_filter=True,  # Enable VAD
-            vad_parameters=dict(min_silence_duration_ms=500)
+            vad_parameters=dict(min_silence_duration_ms=100)
         )
         transcription_time = time.time() - transcription_start
         
