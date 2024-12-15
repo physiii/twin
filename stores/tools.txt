@@ -1,0 +1,4 @@
+thermostat --help                            # Understand how to use the tool and its arguments
+thermostat --status                          # Get the current status of the thermostat or AC
+lights --status                              # Get the current status of the lights
+lights --help                                # Understand how to use the tool and its arguments
