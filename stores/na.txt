@@ -1,0 +1,26 @@
+pactl set-sink-volume @DEFAULT_SINK@ +15%  # Increase system volume by <percent>%
+pactl set-sink-volume @DEFAULT_SINK@ -15%  # Decrease system volume by <percent>%
+pactl set-sink-mute @DEFAULT_SINK@ toggle    # Toggle mute/unmute on the default sink (mute/unmute system volume)
+playerctl position <seconds>-                # Go back or backward by <seconds> in the current media or video
+playerctl position <seconds>+                # Go forward by <seconds> in the current media or video
+pkill -CONT vlc & playerctl play &           # Start, play or resume playback of the current video or media
+pkill -STOP vlc & playerctl pause &          # Stop or pause the current video or media
+xdotool key F11                              # Send 'F11' key to toggle fullscreen mode for the active window
+xdotool key Page_Up                          # Scroll up an entire page in the active window
+xdotool key Page_Down                        # Scroll down an entire page in the active window
+sudo apt update                              # Update package lists from repositories
+sudo apt upgrade -y                          # Upgrade all installed packages to their latest versions without prompting
+gnome-screenshot                             # Take a screenshot of the entire desktop
+xdotool key ctrl+alt+Left                    # Go to the left workspace
+xdotool key ctrl+alt+Right                   # Go to the right workspace
+xdotool key Super_L                          # Spread the windows by system (Super) key
+thermostat --room office --set-temp <temperature>  # Set temperature of <room> to <temperature>°F
+thermostat --room office --power on          # Turn on or power on the thermostat or AC
+thermostat --room office --power off         # Turn off or power off the thermostat or AC
+thermostat --room office --status            # Get the status of the thermostat
+lights --status                              # Get the current status of the lights
+lights --help                                # Understand how to use the tool and its arguments
+lights --power off                           # Turn off the lights
+lights --brightness 100                      # Set brightness of the lights from 0 to 100 percent
+lights --color blue                          # Change or set the lights to blue, red, green or any other color
+lights --animate sunrise                     # Start sunrise animation
