@@ -1,3 +1,5 @@
+# generator.py
+
 import asyncio
 import logging
 import os
@@ -5,7 +7,7 @@ import json
 from datetime import datetime
 
 from model import Model
-from prompt import SYSTEM_PROMPT, PROMPT
+from prompt import PROMPT
 from audio import play_tts_response
 from search import run_search
 from command import execute_commands, run_command_and_capture
@@ -13,10 +15,7 @@ from rapidfuzz import fuzz
 
 logger = logging.getLogger("twin")
 
-model = Model(
-    gpt4o_url="https://api.openai.com/v1/chat/completions",
-    gpt4o_key=os.environ.get("OPENAI_API_KEY")
-)
+model = Model()
 
 WAKE_PHRASES = ["Hey computer.", "Hey twin"]
 
@@ -63,10 +62,23 @@ def process_result(raw_result):
         }
 
 async def run_inference(source_text, accumbens_commands, tool_info, use_remote_inference=False, inference_url=None):
+    """
+    This function loads the text from stores/self/office.txt and injects it into the prompt
+    as {self}, then performs the inference using the model.
+    """
+    # 1. Load the text from office.txt
+    # Adjust the file path if your structure is different.
+    home_directory = os.path.expanduser("~")
+    self_file_path = os.path.join(home_directory, "self.txt")
+    with open(self_file_path, "r", encoding="utf-8") as f:
+        self_text = f.read().strip()
+
+    # 2. Format the prompt, injecting self_text
     prompt = PROMPT.format(
         source_text=source_text,
         accumbens_commands="\n".join(accumbens_commands),
-        tool_info=tool_info
+        tool_info=tool_info,
+        self=self_text
     )
 
     logger.info(f"Running inference with prompt: {prompt}")
@@ -138,10 +150,9 @@ async def process_user_text(
 
     # Double-check here: if the system is STILL not awake and not forced awake, do no inference.
     if not is_awake and not force_awake:
-        # Just in case, return without inference.
         return response
 
-    # System is awake or forced awake from this point onwards:
+    # System is awake or forced awake from this point onward
     amygdala_results, _ = await run_search(text, 'amygdala', remote_store_url=REMOTE_STORE_URL)
     accumbens_results, _ = await run_search(text, 'na', remote_store_url=REMOTE_STORE_URL)
     hippocampus_results, _ = await run_search(text, 'hippocampus', remote_store_url=REMOTE_STORE_URL)
@@ -207,13 +218,16 @@ async def process_user_text(
                     f"[Warning] Commands not executed. Risk: {inference_response['risk']}. Confirmation required."
                 )
 
+        # If you wish to enable audio feedback, uncomment:
         # if not args.silent and inference_response.get('requires_audio_feedback', False):
-        #     asyncio.create_task(play_tts_response(
-        #         inference_response['response'],
-        #         tts_python_path=TTS_PYTHON_PATH,
-        #         tts_script_path=TTS_SCRIPT_PATH,
-        #         silent=args.silent,
-        #     ))
+        #     asyncio.create_task(
+        #         play_tts_response(
+        #             inference_response['response'],
+        #             tts_python_path=TTS_PYTHON_PATH,
+        #             tts_script_path=TTS_SCRIPT_PATH,
+        #             silent=args.silent,
+        #         )
+        #     )
 
         response["inference_response"] = inference_response
 

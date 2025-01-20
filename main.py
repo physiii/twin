@@ -106,21 +106,46 @@ def calculate_rms(audio_data):
     return np.sqrt(np.mean(np.square(audio_data)))
 
 async def pause_media_players():
+    """
+    Pauses media playback using playerctl.
+    If VLC is running and recognized by playerctl, it will also be paused.
+    """
     loop = asyncio.get_running_loop()
     try:
-        result = await loop.run_in_executor(None, lambda: subprocess.run(['playerctl', 'status'], capture_output=True, text=True))
-        if result.stdout.strip() == 'Playing':
-            await loop.run_in_executor(None, lambda: subprocess.run(['playerctl', 'pause']))
-    except Exception as e:
-        logger.error(f"Error checking or pausing playerctl: {e}")
+        # 1. Pause any default player if it's currently playing
+        status_result = await loop.run_in_executor(
+            None, 
+            lambda: subprocess.run(['playerctl', 'status'], capture_output=True, text=True)
+        )
+        if status_result.stdout.strip() == 'Playing':
+            await loop.run_in_executor(
+                None, 
+                lambda: subprocess.run(['playerctl', 'pause'])
+            )
 
-    try:
-        result = await loop.run_in_executor(None, lambda: subprocess.run(['ps', '-C', 'vlc', '-o', 'state'], capture_output=True, text=True))
-        states = result.stdout.strip().split('\n')[1:]
-        if 'S' in states:
-            await loop.run_in_executor(None, lambda: subprocess.run(['pkill', '-STOP', 'vlc']))
+        # 2. Check if VLC is recognized by playerctl, and if so, pause it if it's playing
+        players_result = await loop.run_in_executor(
+            None, 
+            lambda: subprocess.run(['playerctl', '-l'], capture_output=True, text=True)
+        )
+        players = players_result.stdout.strip().split('\n')
+        if 'vlc' in players:
+            vlc_status_result = await loop.run_in_executor(
+                None, 
+                lambda: subprocess.run(
+                    ['playerctl', '-p', 'vlc', 'status'], 
+                    capture_output=True, 
+                    text=True
+                )
+            )
+            if vlc_status_result.stdout.strip() == 'Playing':
+                await loop.run_in_executor(
+                    None, 
+                    lambda: subprocess.run(['playerctl', '-p', 'vlc', 'pause'])
+                )
+
     except Exception as e:
-        logger.error(f"Error checking or pausing vlc: {e}")
+        logger.error(f"Error pausing media players: {e}")
 
 async def process_buffer(transcription_model, use_remote_transcription, remote_transcribe_url, context):
     await asyncio.sleep(0.1)

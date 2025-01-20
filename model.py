@@ -10,9 +10,9 @@ import json
 logger = logging.getLogger("twin")
 
 class Model:
-    def __init__(self, gpt4o_url, gpt4o_key):
-        self.gpt4o_url = gpt4o_url
-        self.gpt4o_key = gpt4o_key
+    def __init__(self):
+        self.gpt4o_url = os.environ.get("GPT4O_URL")
+        self.gpt4o_key = os.environ.get("GPT4O_KEY")
 
     async def gpt4o_inference(self, prompt, system_prompt):
         start_time = time.time()
@@ -50,9 +50,9 @@ class Model:
             tuple: (response_text, duration)
         """
         start_time = time.time()
-        # mistralsmall:22b, llama3.2:3b, llama3.1:8b
+        # mistralsmall:22b, llama3.2:3b, llama3.1:8b deepseek-r1:7b deepseek-r1:8b
         payload = {
-            "model": "llama3.1:8b",
+            "model": "deepseek-r1:7b",
             "prompt": prompt,
             "stream": False
         }
@@ -78,7 +78,4 @@ class Model:
             return None, time.time() - start_time
 
 # Initialize the model instance here
-model = Model(
-    gpt4o_url="https://api.openai.com/v1/chat/completions",
-    gpt4o_key=os.environ.get("OPENAI_API_KEY")
-)
+model = Model()

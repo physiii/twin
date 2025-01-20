@@ -1,8 +1,8 @@
 {
   "rooms": [
     {
-      "name": "Living Room",
-      "lights": [1, 2, 3, 4]
+      "name": "Media",
+      "lights": [10, 11, 12, 13, 14]
     },
     {
       "name": "Kitchen",
@@ -14,7 +14,7 @@
     },
     {
       "name": "Office",
-      "lights": [13, 14]
+      "lights": [1, 2, 3, 4, 5, 6, 7, 8, 9]
     }
   ]
 }

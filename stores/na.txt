@@ -14,13 +14,7 @@ gnome-screenshot                             # Take a screenshot of the entire d
 xdotool key ctrl+alt+Left                    # Go to the left workspace
 xdotool key ctrl+alt+Right                   # Go to the right workspace
 xdotool key Super_L                          # Spread the windows by system (Super) key
-thermostat --room office --set-temp <temperature>  # Set temperature of <room> to <temperature>°F
-thermostat --room office --power on          # Turn on or power on the thermostat or AC
-thermostat --room office --power off         # Turn off or power off the thermostat or AC
-thermostat --room office --status            # Get the status of the thermostat
-lights --status                              # Get the current status of the lights
-lights --help                                # Understand how to use the tool and its arguments
-lights --power off                           # Turn off the lights
-lights --brightness 100                      # Set brightness of the lights from 0 to 100 percent
-lights --color blue                          # Change or set the lights to blue, red, green or any other color
-lights --animate sunrise                     # Start sunrise animation
+thermostat --room <room_name> --set-temp <temperature>  # Set temperature of <room> to <temperature>°F
+thermostat --room <room_name> --power on          # Turn on or power on the thermostat or AC
+thermostat --room <room_name> --power off         # Turn off or power off the thermostat or AC
+thermostat --room <room_name> --status            # Get the status of the thermostat
