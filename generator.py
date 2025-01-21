@@ -25,10 +25,18 @@ def clean_gpt_response(raw_response):
     return raw_response
 
 def process_result(raw_result):
+    """
+    Attempt to parse 'raw_result' into the single valid JSON structure expected by the app.
+    Accepts either:
+      1) The original format with a 'commands' list.
+      2) The new format with a 'command' key that may be a string or a list of dicts.
+    """
     if isinstance(raw_result, str):
+        # If it's JSON in a string, try to parse it
         try:
             raw_result = json.loads(raw_result)
         except json.JSONDecodeError:
+            # If not valid JSON, return a fallback
             return {
                 "commands": ["echo " + str(raw_result)],
                 "response": str(raw_result),
@@ -39,18 +47,9 @@ def process_result(raw_result):
                 "intent_reasoning": ""
             }
 
-    if isinstance(raw_result, dict) and 'commands' in raw_result:
-        return {
-            "commands": raw_result.get("commands", []),
-            "response": raw_result.get("response", ""),
-            "risk": raw_result.get("risk", 0.5),
-            "confirmed": raw_result.get("confirmed", False),
-            "requires_audio_feedback": raw_result.get("requires_audio_feedback", False),
-            "confidence": raw_result.get("confidence", 0.5),
-            "intent_reasoning": raw_result.get("intent_reasoning", "")
-        }
-    else:
-        logger.error(f"Unexpected raw result format: {type(raw_result)}, {raw_result}")
+    # If we still don't have a dictionary, bail out
+    if not isinstance(raw_result, dict):
+        logger.error(f"Unexpected result type (expected dict or valid JSON str): {type(raw_result)}")
         return {
             "commands": [],
             "response": "",
@@ -60,6 +59,44 @@ def process_result(raw_result):
             "confidence": 0.5,
             "intent_reasoning": ""
         }
+
+    # Now handle the two known scenarios:
+    # 1) We already have "commands" in raw_result (the old/original expected format).
+    # 2) We have "command" but not "commands" (the new format).
+    commands = []
+
+    if "commands" in raw_result and isinstance(raw_result["commands"], list):
+        # Original (expected) format
+        commands = raw_result.get("commands", [])
+    elif "command" in raw_result:
+        # The new format. "command" might be a string or a list of dicts with "command".
+        c = raw_result["command"]
+        if isinstance(c, list):
+            # e.g. "command": [ {"command": "lights --power off", ...}, {"command": "lights --room office", ...} ]
+            # We only need the actual command strings for the final JSON output
+            extracted = []
+            for item in c:
+                if isinstance(item, dict) and "command" in item:
+                    extracted.append(item["command"])
+                elif isinstance(item, str):
+                    extracted.append(item)
+            commands = extracted
+        elif isinstance(c, str):
+            # A single command string
+            commands = [c]
+        # else: if "command" is present but not parseable, commands remain empty
+
+    # Construct the final JSON object in the shape your system expects.
+    # The keys below are mandatory. We also keep the same default/fallback values as before.
+    return {
+        "commands": commands,
+        "response": raw_result.get("response", ""),
+        "risk": raw_result.get("risk", 0.5),
+        "confirmed": raw_result.get("confirmed", False),
+        "requires_audio_feedback": raw_result.get("requires_audio_feedback", False),
+        "confidence": raw_result.get("confidence", 0.5),
+        "intent_reasoning": raw_result.get("intent_reasoning", "")
+    }
 
 async def run_inference(source_text, accumbens_commands, tool_info, use_remote_inference=False, inference_url=None):
     """
