@@ -1,0 +1,91 @@
+Turn on the kitchen lights.
+Turn off the kitchen lights.
+Turn on the living room lights.
+Turn off the living room lights.
+Dim the living room lights to 50%.
+Brighten the bedroom lights to 100%.
+Set the porch light to blue.
+Turn off all lights.
+Turn on the garden lights at 8 PM.
+Set the hallway lights to 75% brightness.
+Set the thermostat to 72 degrees.
+Increase the thermostat by 2 degrees.
+Decrease the temperature by 3 degrees.
+Set the thermostat to 68 degrees at 6 PM.
+Turn on the air conditioning.
+Turn off the AC.
+Set the thermostat mode to heating.
+Switch the thermostat to cooling mode.
+Turn on the heater.
+Turn off the heater.
+Set the bedroom thermostat to 65 degrees.
+Lock the front door.
+Unlock the front door.
+Lock the back door.
+Unlock the back door.
+Lock the front door at 10 PM.
+Open the garage door.
+Close the garage door.
+Arm the security system.
+Disarm the security system.
+Set the alarm to away mode.
+Activate night mode for security.
+Show the front door camera feed.
+Start recording on the backyard camera.
+Start the coffee maker.
+Start the coffee maker at 7 AM.
+Stop the coffee maker.
+Brew coffee at 6:30 AM.
+Preheat the oven to 350 degrees.
+Turn on the oven.
+Turn off the oven.
+Set the oven temperature to 375 degrees.
+Start the dishwasher.
+Stop the dishwasher.
+Start the washing machine.
+Start the dryer.
+Start a load of laundry.
+Turn on the robot vacuum.
+Stop the robot vacuum.
+Dock the robot vacuum.
+Start cleaning the living room.
+Turn on the humidifier.
+Turn off the humidifier.
+Set the humidifier to 50%.
+Turn on the air purifier.
+Turn off the air purifier.
+Boil water in the kettle.
+Turn on the TV.
+Turn off the TV.
+Mute the TV.
+Unmute the TV.
+Set the TV volume to 20.
+Increase the TV volume by 5.
+Decrease the TV volume by 5.
+Switch the TV input to HDMI 2.
+Tune to channel 5 on the TV.
+Play the next episode on the TV.
+Play the movie Inception.
+Play jazz music in the living room.
+Play some music.
+Play music on all speakers.
+Pause the music.
+Resume the music.
+Set the living room speaker volume to 50%.
+Turn on the game console.
+Turn off the game console.
+Turn on the radio.
+Shuffle the workout playlist.
+Open the blinds.
+Close the blinds.
+Raise the blinds to 50%.
+Lower the blinds.
+Turn on the ceiling fan.
+Turn off the ceiling fan.
+Set the fan speed to 3.
+Start the sprinkler system.
+Stop the sprinkler system.
+Water the garden at 6 AM.
+Water the lawn.
+Close the gate.
+Make an announcement: Dinner is ready.
