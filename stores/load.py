@@ -1,10 +1,28 @@
-# load.py
 #!/usr/bin/env python3
 
 import os
 import requests
 import json
 import argparse
+import numpy as np
+
+# URL for your embedding server's endpoint
+EMBEDDING_SERVER_URL = "http://localhost:8000/embed"
+
+def get_embedding(text):
+    """
+    Gets an embedding for the given text by calling the embedding server.
+    Assumes the server's /embed endpoint accepts a JSON payload with a "text" field.
+    """
+    payload = {"text": text}
+    try:
+        response = requests.post(EMBEDDING_SERVER_URL, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        return data["embedding"]
+    except Exception as e:
+        print(f"Error retrieving embedding for text '{text}': {e}")
+        return None
 
 def get_collection_name(file_path):
     """Extracts collection name from the file name."""
@@ -64,6 +82,34 @@ def load_file_to_vectorstore(file_path, base_url, reload_collection):
             except Exception as e:
                 print(f"Line {line_number}: Exception occurred: {str(e)}")
 
+    # If this is the complete or incomplete collection, compute and store the centroid
+    if collection_name in ("complete", "incomplete"):
+        # Re-read the file to collect all non-empty lines
+        with open(file_path, 'r', encoding='utf-8') as file:
+            texts = [line.strip() for line in file if line.strip()]
+        if texts:
+            embeddings = []
+            for text in texts:
+                embedding = get_embedding(text)
+                if embedding is not None:
+                    embeddings.append(embedding)
+            if embeddings:
+                embeddings = np.array(embeddings)
+                centroid = embeddings.mean(axis=0)
+                centroid_list = centroid.tolist()
+                
+                # Create the centroids directory if it doesn't exist
+                centroid_dir = "centroids"
+                os.makedirs(centroid_dir, exist_ok=True)
+                centroid_file = os.path.join(centroid_dir, f"{collection_name}_centroid.json")
+                with open(centroid_file, "w", encoding="utf-8") as cf:
+                    json.dump(centroid_list, cf)
+                print(f"Centroid for collection '{collection_name}' saved to {centroid_file}.")
+            else:
+                print(f"Could not compute centroid for {collection_name} because no embeddings were retrieved.")
+        else:
+            print(f"No valid texts found in {file_path} to compute centroid.")
+
 def main():
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Load data into a vectorstore with optional collection clearing.")
@@ -78,7 +124,9 @@ def main():
         '/media/mass/scripts/twin/stores/amygdala.txt',
         '/media/mass/scripts/twin/stores/modes.txt',
         '/media/mass/scripts/twin/stores/conditions.txt',
-        '/media/mass/scripts/twin/stores/tools.txt'
+        '/media/mass/scripts/twin/stores/tools.txt',
+        '/media/mass/scripts/twin/stores/complete.txt',
+        '/media/mass/scripts/twin/stores/incomplete.txt',
     ]
 
     for file_path in file_paths:
