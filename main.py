@@ -23,6 +23,7 @@ import uuid
 import os
 import logging
 
+# Instead of a custom filter, we'll use standard logging format attributes
 os.makedirs('logs', exist_ok=True)
 log_file = 'logs/continuous.log'
 handlers = [
@@ -31,10 +32,11 @@ handlers = [
 ]
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    format="%(asctime)s [%(name)s] [%(levelname)s] [%(filename)s] %(message)s",
     handlers=handlers
 )
 
+# Remove the custom filter
 logger = logging.getLogger("twin")
 logging.getLogger("faster_whisper").setLevel(logging.ERROR)
 

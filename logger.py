@@ -23,6 +23,11 @@ class ColoredFormatter(logging.Formatter):
         orig_levelname = record.levelname
         # Add color to the levelname
         record.levelname = f"{COLORS.get(record.levelname, '')}{record.levelname}{Style.RESET_ALL}"
+        
+        # Calculate filename (without extension) before formatting
+        filename = os.path.splitext(os.path.basename(record.pathname))[0]
+        record.basename_no_ext = filename
+        
         # Format the message
         result = super().format(record)
         # Restore original levelname
@@ -51,21 +56,24 @@ def setup_logging(log_level: Optional[str] = None) -> None:
     env = os.getenv('ENV', 'dev').lower()
     log_file = os.path.join(log_dir, f"twin_{timestamp}.log")
     
-    # Unified formatter
+    # Unified formatter with filename - use basename_no_ext which is added in the ColoredFormatter
     unified_formatter = logging.Formatter(
-        '%(asctime)s [%(levelname)s] %(message)s',
+        '%(asctime)s [%(levelname)s] [%(basename_no_ext)s] %(message)s',
         datefmt='%H:%M:%S'
     )
     
     # File handler configuration
     file_handler = logging.FileHandler(log_file)
-    file_handler.setFormatter(unified_formatter)
+    file_handler.setFormatter(ColoredFormatter(
+        '%(asctime)s [%(levelname)s] [%(basename_no_ext)s] %(message)s',
+        datefmt='%H:%M:%S'
+    ))
     file_handler.setLevel(logging.DEBUG)  # Capture all log levels
     
     # Console handler configuration
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(ColoredFormatter(
-        '%(asctime)s [%(levelname)s] %(message)s',
+        '%(asctime)s [%(levelname)s] [%(basename_no_ext)s] %(message)s',
         datefmt='%H:%M:%S'
     ))
     console_handler.setLevel(logging.INFO)  # Capture INFO and above levels
