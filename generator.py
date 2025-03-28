@@ -119,15 +119,23 @@ async def run_inference(source_text, accumbens_commands, tool_info, use_remote_i
     )
 
     logger.info(f"Running inference with prompt: {prompt}")
-    raw_result, duration = await model.remote_inference(prompt, inference_url)
-
-    parse_result = clean_gpt_response(raw_result)
-
-    if raw_result:
-        return process_result(parse_result), duration
-    else:
-        logger.error("No result returned from inference.")
-        return None, duration
+    
+    try:
+        raw_result, duration = await model.remote_inference(prompt, inference_url)
+        
+        if raw_result:
+            logger.info(f"Received raw result from inference, length: {len(raw_result)}")
+            parse_result = clean_gpt_response(raw_result)
+            processed_result = process_result(parse_result)
+            logger.info(f"Successfully processed inference result")
+            # Return the self_text along with the result for use in command execution
+            return processed_result, duration, self_text
+        else:
+            logger.error("No result returned from inference. The model.remote_inference call returned None or empty string.")
+            return None, duration, self_text
+    except Exception as e:
+        logger.error(f"Exception during inference: {str(e)}", exc_info=True)
+        return None, 0, self_text
 
 async def process_user_text(
     text, 
@@ -230,13 +238,24 @@ async def process_user_text(
 
     combined_commands = [snippet for snippet, _ in accumbens_results]
 
-    inference_response, raw_response = await run_inference(
+    logger.debug("Starting remote inference...")
+    inference_result = await run_inference(
         source_text=text,
         accumbens_commands=combined_commands,
         tool_info=tool_info,
         use_remote_inference=bool(REMOTE_INFERENCE_URL),
         inference_url=REMOTE_INFERENCE_URL,
     )
+    
+    # Unpack the result - now includes self_text
+    if len(inference_result) == 3:
+        inference_response, raw_response, self_text = inference_result
+        # Add self_text to context for command execution
+        context['self_text'] = self_text
+    else:
+        inference_response, raw_response = inference_result[:2]
+    
+    logger.debug("Remote inference finished.")
 
     if inference_response:
         if 'session_data' in context and context['session_data'] is not None:
@@ -247,13 +266,20 @@ async def process_user_text(
                 "raw_response": raw_response,
             })
 
+        logger.info(f"Inference response contains commands: {inference_response.get('commands', [])}")
+        logger.info(f"Risk level: {inference_response.get('risk', 'unknown')}, Threshold: {RISK_THRESHOLD}")
+        logger.info(f"Execute flag: {args.execute}")
+        
         if args.execute:
-            if inference_response['risk'] <= RISK_THRESHOLD or inference_response.get('confirmed', False):
-                await execute_commands(inference_response['commands'], COOLDOWN_PERIOD, context)
+            if inference_response.get('risk', 1.0) <= RISK_THRESHOLD or inference_response.get('confirmed', False):
+                logger.info(f"Executing commands: {inference_response.get('commands', [])}")
+                await execute_commands(inference_response.get('commands', []), COOLDOWN_PERIOD, context)
             else:
                 logger.warning(
-                    f"[Warning] Commands not executed. Risk: {inference_response['risk']}. Confirmation required."
+                    f"[Warning] Commands not executed. Risk: {inference_response.get('risk', 'unknown')}. Threshold: {RISK_THRESHOLD}. Confirmation required."
                 )
+        else:
+            logger.warning("Command execution disabled (args.execute is False)")
 
         # If you wish to enable audio feedback, uncomment:
         # if not args.silent and inference_response.get('requires_audio_feedback', False):

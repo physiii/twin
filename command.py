@@ -82,6 +82,26 @@ async def execute_single_command(command, cooldown_period, context):
                 logger.warning("⚠️  Empty command string received")
                 return (False, "", "Empty command")
 
+        # --- NEW: Process light commands to replace placeholders ---
+        if "lights" in command_str and "<room_name>" in command_str:
+            # Extract 'self' location from context
+            self_location = "office"  # Default fallback
+            if "self_text" in context:
+                # Try to find location in self text
+                if "office" in context["self_text"].lower():
+                    self_location = "office"
+                elif "kitchen" in context["self_text"].lower():
+                    self_location = "kitchen"
+                elif "bedroom" in context["self_text"].lower():
+                    self_location = "bedroom"
+                elif "media" in context["self_text"].lower():
+                    self_location = "media"
+            
+            # Replace <room_name> with the actual location
+            command_str = command_str.replace("<room_name>", self_location)
+            logger.info(f"🏠 Replaced room placeholder: '{command_str}'")
+        # ---------------------------------------------------------
+
         # --- NEW: sanitize angle-bracket placeholders (avoid shell redirect) ---
         if "<" in command_str or ">" in command_str:
             new_command_str = re.sub(r"<[^>]*>", "office", command_str)
