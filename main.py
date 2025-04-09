@@ -54,7 +54,7 @@ RISK_THRESHOLD = 0.5
 HISTORY_BUFFER_SIZE = 4
 HISTORY_MAX_CHARS = 4000
 WAKE_TIMEOUT = 24
-SILENCE_THRESHOLD = 0.00005
+SILENCE_THRESHOLD = 0.000005
 CHANNELS = 1
 CHUNK_SIZE = 1024
 
@@ -197,17 +197,20 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
     # Read small buffer to gauge silence
     small_audio_data = np.array(list(small_audio_buffer), dtype=np.float32)
     small_rms = calculate_rms(small_audio_data)
-
-    if small_rms < SILENCE_THRESHOLD and not is_awake:
-        return
+    
+    # Debug logging for audio levels
+    if len(small_audio_buffer) > 0 and time.time() % 5 < 0.2:  # Log every ~5 seconds
+        logger.info(f"[Debug] Small buffer RMS: {small_rms}, threshold: {SILENCE_THRESHOLD}, small buffer size: {len(small_audio_buffer)}")
 
     audio_data = np.array(list(audio_buffer), dtype=np.float32)
     if len(audio_data) == 0:
         return
 
     rms = calculate_rms(audio_data)
-    if rms < SILENCE_THRESHOLD:
-        return
+    
+    # Debug logging for main buffer
+    if time.time() % 5 < 0.2:  # Log every ~5 seconds
+        logger.info(f"[Debug] Main buffer RMS: {rms}, main buffer size: {len(audio_buffer)}")
 
     # Transcribe the current chunk
     transcriptions, _ = await transcribe_audio(
@@ -301,8 +304,9 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
 async def main():
     log_available_audio_devices()
     devices = sd.query_devices()
-    input_device = ""
+    input_device = None  # Changed from empty string to None
 
+    # Try to find the specified input device
     if args.source:
         if args.source.isdigit():
             input_device = int(args.source)
@@ -311,10 +315,61 @@ async def main():
                 if args.source.lower() in device["name"].lower():
                     input_device = i
                     break
-        if input_device == "":
-            logger.error(f"Specified audio source '{args.source}' not found.")
-            return
+            
+            # If device name not found and we're looking for pulse, try to find it by number
+            if input_device is None and args.source.lower() == "pulse":
+                for i, device in enumerate(devices):
+                    if "pulse" in device["name"].lower() or (device.get("name", "").lower() == "pulse"):
+                        input_device = i
+                        logger.info(f"Found PulseAudio device at index {i}")
+                        break
+            
+            # If still not found, try device 13 (common pulse index)
+            if input_device is None and args.source.lower() == "pulse":
+                try:
+                    # Find the device with pulse in the name
+                    for i, device in enumerate(devices):
+                        if i == 13 and device.get("max_input_channels", 0) > 0:
+                            input_device = 13
+                            logger.info("Using default PulseAudio device (13)")
+                            break
+                except Exception as e:
+                    logger.error(f"Error finding pulse device: {e}")
+        
+        # If input_device is still None, try to find any working device
+        if input_device is None:
+            logger.warning(f"Specified audio source '{args.source}' not found. Trying fallback devices.")
+            
+            # Try common device indices for input
+            for test_id in [13, 14, 0, "default"]:
+                try:
+                    logger.info(f"Testing audio device {test_id}")
+                    with sd.InputStream(device=test_id, channels=1, samplerate=SAMPLE_RATE, blocksize=CHUNK_SIZE, dtype="float32"):
+                        logger.info(f"Found working audio device: {test_id}")
+                        input_device = test_id
+                        break
+                except Exception as e:
+                    logger.warning(f"Device {test_id} failed: {e}")
+            
+            # If still no device, try to find any with input channels
+            if input_device is None:
+                for i, device in enumerate(devices):
+                    try:
+                        if device.get("max_input_channels", 0) > 0:
+                            logger.info(f"Trying device {i}: {device.get('name', 'Unknown')} with {device.get('max_input_channels')} input channels")
+                            with sd.InputStream(device=i, channels=1, samplerate=SAMPLE_RATE, blocksize=CHUNK_SIZE, dtype="float32"):
+                                logger.info(f"Found working audio device: {i}")
+                                input_device = i
+                                break
+                    except Exception as e:
+                        logger.warning(f"Device {i} failed: {e}")
+    
+    if input_device is None:
+        logger.error("No suitable audio device found. Exiting.")
+        return
 
+    logger.info(f"Using audio input device: {input_device}")
+    
     use_remote_transcription = args.remote_transcribe is not None
     transcription_model = (
         None

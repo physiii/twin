@@ -2,3 +2,15 @@ thermostat --help                            # Understand how to use the tool an
 thermostat --status                          # Get the current status of the thermostat or AC
 lights --status                              # Get the current status of the lights
 lights --help                                # Understand how to use the tool and its arguments
+HassTurnOn                                  # Turns on/opens a device or entity
+HassTurnOff                                  # Turns off/closes a device or entity
+HassCancelAllTimers                                  # Cancels all timers
+HassLightSet                                  # Sets the brightness percentage or color of a light
+HassListAddItem                                  # Add item to a todo list
+HassListCompleteItem                                  # Complete item on a todo list
+HassMediaUnpause                                  # Resumes a media player
+HassMediaPause                                  # Pauses a media player
+HassMediaNext                                  # Skips a media player to the next item
+HassMediaPrevious                                  # Replays the previous item for a media player
+HassSetVolume                                  # Sets the volume percentage of a media player
+get_home_state                                  # Get the current state of all devices in the home. 
