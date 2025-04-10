@@ -2,7 +2,7 @@
 import subprocess, json, threading, queue, sys, time, os, requests
 
 # Configuration: Using port 8080 and your valid token
-HA_URL = "http://localhost:8080/mcp_server/sse"  # SSE endpoint of Home Assistant MCP
+HA_URL = "http://192.168.1.40:8080/mcp_server/sse"  # SSE endpoint of Home Assistant MCP
 HA_TOKEN = (
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
     "eyJpc3MiOiJlOGY5YmMzOTA3MTU0YTQzODBhN2Q1YTY2NzliYzEyMyIsImlhdCI6MTc0MjkzNDk1MSwiZXhwIjoyMDU4Mjk0OTUxfQ."
@@ -181,7 +181,15 @@ call_tool(
     request_id=11
 )
 
-# Step 6: Query full inventory from Home Assistant via REST API
+# Step 6: Call the custom shell command tool to execute 'ls /tmp'
+time.sleep(1)
+call_tool(
+    tool_name="HassRunCommand",
+    arguments={"value": "ls /tmp", "timeout": 10},
+    request_id=12
+)
+
+# Step 7: Query full inventory from Home Assistant via REST API
 def query_inventory():
     log("Querying full inventory of Home Assistant entities...")
     # Assuming Home Assistant REST API is available on the same host and port
