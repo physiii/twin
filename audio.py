@@ -23,9 +23,9 @@ def audio_callback(indata, frames, time_info, status, audio_queue, audio_buffer,
         if indata.size > 0:
             max_val = np.max(np.abs(indata))
             mean_val = np.mean(np.abs(indata))
-            logger.info(f"[Debug] Audio callback received data: shape={indata.shape}, max={max_val:.6f}, mean={mean_val:.6f}")
+            logger.debug(f"Audio callback received data: shape={indata.shape}, max={max_val:.6f}, mean={mean_val:.6f}")
         else:
-            logger.warning("[Debug] Audio callback received empty data")
+            logger.debug("Audio callback received empty data")
     
     audio_data = indata[:, 0] if indata.shape[1] > 1 else indata.flatten()
     audio_queue.put(audio_data.copy())

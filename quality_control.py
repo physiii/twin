@@ -186,13 +186,11 @@ Session Performance Metrics:
             logger.error("REMOTE_INFERENCE_URL not set. Cannot generate QC report.")
             return
 
-        response_text, inference_duration = await model.remote_inference(full_prompt, inference_url=remote_inference_url)
-
-        if not response_text:
-            logger.error("[QC Report] No response from LLM, cannot update report.json")
-            return
-
-        description, score = extract_description_and_score(response_text)
+        # Instead, generate a basic description and score based on available data
+        description = f"Session {session_id} from {start_time} to {end_time}. Duration: {duration:.2f}s. Commands: {successful_commands}/{total_commands} successful."
+        # Simple scoring: base 0.5 + 0.5 * success_rate / 100 - 0.1 if failed > 0
+        score = 0.5 + (0.5 * success_rate / 100.0) - (0.1 if failed_commands > 0 else 0.0)
+        score = max(0.0, min(1.0, score)) # Clamp score between 0 and 1
 
         data = load_report()
         timestamp = datetime.now().isoformat()

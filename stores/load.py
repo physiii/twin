@@ -116,7 +116,7 @@ def main():
     parser.add_argument('--reload', action='store_true', help="Clear the collection before loading new data.")
     args = parser.parse_args()
 
-    base_url = 'http://127.0.0.1:5000/vectorstore'  # Update if your API URL is different
+    base_url = 'http://127.0.0.1:5050/vectorstore'  # Update if your API URL is different
 
     file_paths = [
         '/media/mass/scripts/twin/stores/wake.txt',

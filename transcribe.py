@@ -59,7 +59,7 @@ async def transcribe_audio(model=None, audio_data=None, language="en", similarit
             audio_max = np.max(np.abs(audio_data)) if audio_data is not None else 0
             audio_mean = np.mean(np.abs(audio_data)) if audio_data is not None else 0
             audio_shape = audio_data.shape if audio_data is not None else "None"
-            logger.info(f"[Debug] Sending audio to remote: shape={audio_shape}, max={audio_max:.6f}, mean={audio_mean:.6f}")
+            logger.debug(f"Sending audio to remote: shape={audio_shape}, max={audio_max:.6f}, mean={audio_mean:.6f}")
             
             # Convert audio data to WAV format
             buffer = io.BytesIO()
@@ -68,7 +68,7 @@ async def transcribe_audio(model=None, audio_data=None, language="en", similarit
             
             # Log buffer size
             buffer_size = buffer.getbuffer().nbytes
-            logger.info(f"[Debug] Audio buffer size: {buffer_size} bytes")
+            logger.debug(f"Audio buffer size: {buffer_size} bytes")
 
             # Send the audio data to the remote server
             files = {'file': ('audio.wav', buffer, 'audio/wav')}
@@ -77,7 +77,7 @@ async def transcribe_audio(model=None, audio_data=None, language="en", similarit
 
             response_data = response.json()
             text = response_data.get("transcription", "").strip()
-            logger.info(f"[Debug] Remote transcription response: {response_data}")
+            logger.debug(f"Remote transcription response: {response_data}")
             
             # Custom noise filtering for remote transcription
             if text and not is_noise(text) and not is_similar(text, recent_transcriptions or [], similarity_threshold):
@@ -88,7 +88,7 @@ async def transcribe_audio(model=None, audio_data=None, language="en", similarit
                 return [text], 0
             else:
                 if text:
-                    logger.info(f"[Debug] Filtered out text: '{text}', is_noise={is_noise(text)}, is_similar={is_similar(text, recent_transcriptions or [], similarity_threshold)}")
+                    logger.debug(f"Filtered out text: '{text}', is_noise={is_noise(text)}, is_similar={is_similar(text, recent_transcriptions or [], similarity_threshold)}")
                 return [], 0
         except requests.RequestException as e:
             logger.error(f"Error in remote transcription: {str(e)}")

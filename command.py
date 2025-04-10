@@ -42,19 +42,47 @@ def is_in_cooldown(command_str, cooldown_period):
         return elapsed < cooldown_period
     return False
 
-async def execute_commands(commands, cooldown_period, context):
-    """Execute a list of commands with enhanced validation"""
+async def execute_commands(commands, context_or_cooldown=None, requires_confirmation=False, risk_level=0.0, self_text=""):
+    """Execute a list of commands with enhanced validation and confirmation
+    
+    Compatible with both:
+    - old signature: execute_commands(commands, cooldown_period, context)
+    - new signature: execute_commands(commands, context, requires_confirmation, risk_level, self_text)
+    """
     try:
+        # Handle the old calling convention
+        if isinstance(context_or_cooldown, int) or context_or_cooldown is None:
+            # Old calling convention: third arg was context
+            cooldown_period = context_or_cooldown if context_or_cooldown is not None else 0
+            # Try to get context from the requires_confirmation parameter (which was actually context in old convention)
+            context = requires_confirmation
+            # Reset these parameters since they were misinterpreted
+            requires_confirmation = False 
+            risk_level = 0.0
+            self_text = ""
+        else:
+            # New calling convention
+            context = context_or_cooldown
+            # For new convention, get cooldown from context
+            cooldown_period = context.get('COOLDOWN_PERIOD', 0) if hasattr(context, 'get') else 0
+
         if not commands:
             logger.info("🔄 No commands to execute")
             return 0.0
 
+        # Check risk level and confirmation status (only for new convention)
+        if (hasattr(context, 'get') and 
+            risk_level > context.get('RISK_THRESHOLD', 0.5) and 
+            not requires_confirmation):
+            logger.warning(f"⚠️ High risk command detected (Risk: {risk_level:.2f}) but not confirmed. Skipping execution.")
+            return 0.0
+
         logger.info(f"🚀 Executing {len(commands)} command(s)")
         start_time = datetime.now()
-        
+                
         for idx, command in enumerate(commands, 1):
             logger.debug(f"🔧 Processing command {idx}/{len(commands)}")
-            await execute_single_command(command, cooldown_period, context)
+            await execute_single_command(command, cooldown_period, context, self_text)
         
         duration = (datetime.now() - start_time).total_seconds()
         logger.info(f"✅ Completed {len(commands)} command(s) in {duration:.2f}s")
@@ -63,7 +91,7 @@ async def execute_commands(commands, cooldown_period, context):
         logger.error(f"🔴 Critical error executing commands: {str(e)}", exc_info=True)
         return 0.0
 
-async def execute_single_command(command, cooldown_period, context):
+async def execute_single_command(command, cooldown_period, context, self_text=""):
     """Execute a single command with comprehensive validation"""
     try:
         # Log raw command structure
@@ -84,17 +112,17 @@ async def execute_single_command(command, cooldown_period, context):
 
         # --- NEW: Process light commands to replace placeholders ---
         if "lights" in command_str and "<room_name>" in command_str:
-            # Extract 'self' location from context
+            # Extract 'self' location using self_text passed from execute_commands
             self_location = "office"  # Default fallback
-            if "self_text" in context:
+            if self_text:
                 # Try to find location in self text
-                if "office" in context["self_text"].lower():
+                if "office" in self_text.lower():
                     self_location = "office"
-                elif "kitchen" in context["self_text"].lower():
+                elif "kitchen" in self_text.lower():
                     self_location = "kitchen"
-                elif "bedroom" in context["self_text"].lower():
+                elif "bedroom" in self_text.lower():
                     self_location = "bedroom"
-                elif "media" in context["self_text"].lower():
+                elif "media" in self_text.lower():
                     self_location = "media"
             
             # Replace <room_name> with the actual location

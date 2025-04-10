@@ -19,6 +19,7 @@ from transcribe import transcribe_audio, init_transcription_model
 from generator import process_user_text
 from quality_control import generate_quality_control_report
 from webserver import start_webserver
+from command import execute_commands
 import uuid
 import os
 import logging
@@ -39,6 +40,8 @@ logging.basicConfig(
 # Remove the custom filter
 logger = logging.getLogger("twin")
 logging.getLogger("faster_whisper").setLevel(logging.ERROR)
+# Explicitly set the level for the twin logger
+logger.setLevel(logging.INFO)
 
 DEVICE_TYPE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE_TYPE == "cuda" else "float32"
@@ -54,7 +57,7 @@ RISK_THRESHOLD = 0.5
 HISTORY_BUFFER_SIZE = 4
 HISTORY_MAX_CHARS = 4000
 WAKE_TIMEOUT = 24
-SILENCE_THRESHOLD = 0.000005
+SILENCE_THRESHOLD = 0.0005
 CHANNELS = 1
 CHUNK_SIZE = 1024
 
@@ -175,6 +178,7 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
         if result["woke_up"]:
             is_awake = True
             wake_start_time = time.time()
+            await pause_media_players()
             asyncio.create_task(play_wake_sound(WAKE_SOUND_FILE))
             context['session_data'] = {
                 "session_id": str(uuid.uuid4()),
@@ -200,7 +204,7 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
     
     # Debug logging for audio levels
     if len(small_audio_buffer) > 0 and time.time() % 5 < 0.2:  # Log every ~5 seconds
-        logger.info(f"[Debug] Small buffer RMS: {small_rms}, threshold: {SILENCE_THRESHOLD}, small buffer size: {len(small_audio_buffer)}")
+        logger.debug(f"Small buffer RMS: {small_rms}, threshold: {SILENCE_THRESHOLD}, small buffer size: {len(small_audio_buffer)}")
 
     audio_data = np.array(list(audio_buffer), dtype=np.float32)
     if len(audio_data) == 0:
@@ -210,8 +214,14 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
     
     # Debug logging for main buffer
     if time.time() % 5 < 0.2:  # Log every ~5 seconds
-        logger.info(f"[Debug] Main buffer RMS: {rms}, main buffer size: {len(audio_buffer)}")
+        logger.debug(f"Main buffer RMS: {rms}, main buffer size: {len(audio_buffer)}")
 
+    # --- Silence Check --- 
+    # Only transcribe if audio level is above the threshold
+    if rms < SILENCE_THRESHOLD:
+        return # Skip transcription if below silence threshold
+    
+    # --- Proceed with Transcription --- 
     # Transcribe the current chunk
     transcriptions, _ = await transcribe_audio(
         model=transcription_model,
@@ -246,25 +256,28 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
             # If not awake, just use the raw text
             combined_text = text
 
-        # Send to inference
+        # Send to inference *before* checking wake status for this text
+        text_to_process = text if is_awake else combined_text
         result = await process_user_text(
-            combined_text,
+            text_to_process,
             context,
-            is_awake=is_awake,
+            is_awake=is_awake, # Pass current awake state
             force_awake=False
         )
 
-        # If a wake phrase is detected now
-        if result["woke_up"]:
-            is_awake = True
+        # Now, handle state changes and potential command execution
+
+        # --- Wake Up Logic --- 
+        if result["woke_up"] and not is_awake:
+            is_awake = True # Set awake *now*
             wake_start_time = time.time()
             await pause_media_players()
             asyncio.create_task(play_wake_sound(WAKE_SOUND_FILE))
+            # Initialize session data on wake-up
             context['session_data'] = {
                 "session_id": str(uuid.uuid4()),
                 "start_time": datetime.now().isoformat(),
-                "wake_phrase": text,
-                "before_transcriptions": list(recent_transcriptions),
+                "before_transcriptions": list(recent_transcriptions), # Capture history before wake
                 "after_transcriptions": [],
                 "inferences": [],
                 "commands_executed": [],
@@ -273,18 +286,50 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
                 "complete_transcription": "",
                 "source_commands": [],
             }
+            recent_transcriptions.clear() # Clear noise buffer after wake
+            logger.info("[Wake] System awake.")
+            # If we just woke up, don't process inference from the wake phrase itself
+            # Skip directly to the next buffer cycle
+            continue 
 
-        if result["inference_response"]:
-            did_inference = True
-            if result["inference_response"].get('commands') and context['args'].execute:
-                wake_start_time = time.time()
-                logger.info("[Wake] Timeout reset due to command execution")
-                if 'session_data' in context and context['session_data']:
-                    context['session_data']['source_commands'].append({
+        # --- Inference & Command Execution Logic (Only if awake) --- 
+        if is_awake: # Check if we are (or just became) awake
+            if result["inference_response"]:
+                did_inference = True
+                inference_data = result["inference_response"]
+                # Add inference details to session data
+                if 'session_data' in context and context['session_data'] is not None:
+                    context['session_data']['inferences'].append({
                         "timestamp": datetime.now().isoformat(),
-                        "command_text": text,
-                        "inference_response": result["inference_response"],
+                        "transcription_used": text_to_process,
+                        "raw_inference_output": inference_data.get("raw_output", ""), # Assuming raw output is stored
+                        "processed_inference_output": inference_data,
                     })
+
+                # --> IMMEDIATE COMMAND EXECUTION <--
+                if inference_data.get('commands') and context['args'].execute:
+                    logger.info(f"[Execute] Running commands immediately: {inference_data['commands']}")
+                    await execute_commands(
+                        commands=inference_data['commands'],
+                        context_or_cooldown=context,
+                        requires_confirmation=inference_data.get('confirmed', False),
+                        risk_level=inference_data.get('risk', 0.5),
+                        self_text=result.get("self_text", "")
+                    )
+                    # Add executed commands to session data
+                    if 'session_data' in context and context['session_data'] is not None:
+                        context['session_data']['commands_executed'].append({
+                            "timestamp": datetime.now().isoformat(),
+                            "commands": inference_data['commands'],
+                            "triggering_transcription": text_to_process,
+                        })
+
+                # Reset timer only if inference happened while awake
+                wake_start_time = time.time()
+            # else: No inference response while awake, but still reset timer because user spoke
+            else:
+                 wake_start_time = time.time()
+                 logger.debug("[Wake] Timer reset due to non-command transcription while awake.")
 
     # Check if we should sleep
     if is_awake and wake_start_time and (time.time() - wake_start_time) > WAKE_TIMEOUT:
@@ -387,7 +432,7 @@ async def main():
         "TTS_SCRIPT_PATH": TTS_SCRIPT_PATH,
         "running_log": running_log,
         "AMY_DISTANCE_THRESHOLD": 1.1,
-        "NA_DISTANCE_THRESHOLD": 1.2,
+        "NA_DISTANCE_THRESHOLD": 1.4,
         "HIP_DISTANCE_THRESHOLD": 1.1,
         "command_queue": command_queue,
         "session_data": None,
