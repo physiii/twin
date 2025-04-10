@@ -8,7 +8,7 @@ Type=simple
 ExecStart=/usr/bin/env bash -c 'source /home/andy/venv/bin/activate && python /media/mass/scripts/twin/main.py --remote-inference http://192.168.1.40:11434/api/generate --remote-transcribe http://192.168.1.40:8123 --remote-store http://192.168.1.40:5050/vectorstore --source 14'
 WorkingDirectory=/media/mass/scripts/twin
 EnvironmentFile=/home/andy/.config/systemd/user/twin.env
-Environment="OPENAI_API_KEY=YOUR_API_KEY_PLACEHOLDER"
+Environment="OPENAI_API_KEY=${OPENAI_API_KEY}"
 Restart=always
 RestartSec=10
 
