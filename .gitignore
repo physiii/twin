@@ -29,5 +29,6 @@ reports/
 
 # Ignore environment files that might contain secrets
 *.env
+!.env.sample
 twin.env
 service/twin.env

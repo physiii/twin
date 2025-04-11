@@ -16,4 +16,5 @@ requests
 sounddevice
 numpy
 torch
+python-dotenv
 

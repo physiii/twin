@@ -23,10 +23,11 @@ from command import execute_commands
 import uuid
 import os
 import logging
+import config
 
 # Instead of a custom filter, we'll use standard logging format attributes
 os.makedirs('logs', exist_ok=True)
-log_file = 'logs/continuous.log'
+log_file = config.LOG_FILE
 handlers = [
     logging.FileHandler(log_file, mode='a'),
     logging.StreamHandler()
@@ -43,32 +44,29 @@ logging.getLogger("faster_whisper").setLevel(logging.ERROR)
 # Explicitly set the level for the twin logger
 logger.setLevel(logging.INFO)
 
-DEVICE_TYPE = "cuda" if torch.cuda.is_available() else "cpu"
-COMPUTE_TYPE = "float16" if DEVICE_TYPE == "cuda" else "float32"
-SAMPLE_RATE = 16000
-BUFFER_DURATION = 3
-BUFFER_SIZE = SAMPLE_RATE * BUFFER_DURATION
-SMALL_BUFFER_DURATION = 0.2
+# Load configuration from config.py
+DEVICE_TYPE = config.DEVICE_TYPE
+COMPUTE_TYPE = config.COMPUTE_TYPE
+SAMPLE_RATE = config.SAMPLE_RATE
+BUFFER_DURATION = config.BUFFER_DURATION
+BUFFER_SIZE = int(SAMPLE_RATE * BUFFER_DURATION)
+SMALL_BUFFER_DURATION = config.SMALL_BUFFER_DURATION
 SMALL_BUFFER_SIZE = int(SAMPLE_RATE * SMALL_BUFFER_DURATION)
-LANGUAGE = "en"
-SIMILARITY_THRESHOLD = 85
-COOLDOWN_PERIOD = 0
-RISK_THRESHOLD = 0.5
-HISTORY_BUFFER_SIZE = 4
-HISTORY_MAX_CHARS = 4000
-WAKE_TIMEOUT = 24
-SILENCE_THRESHOLD = 0.0005
-CHANNELS = 1
-CHUNK_SIZE = 1024
-
-# How many transcription chunks to prepend for the current inference:
-HISTORY_INCLUDE_CHUNKS = 6
-
-TTS_PYTHON_PATH = "/home/andy/venvs/tts-env/bin/python"
-TTS_SCRIPT_PATH = "/home/andy/scripts/tts/tts.py"
-
-WAKE_SOUND_FILE = "/media/mass/scripts/twin/wake.wav"
-SLEEP_SOUND_FILE = "/media/mass/scripts/twin/sleep.wav"
+LANGUAGE = config.LANGUAGE
+SIMILARITY_THRESHOLD = config.SIMILARITY_THRESHOLD
+COOLDOWN_PERIOD = config.COOLDOWN_PERIOD
+RISK_THRESHOLD = config.RISK_THRESHOLD
+HISTORY_BUFFER_SIZE = config.HISTORY_BUFFER_SIZE
+HISTORY_MAX_CHARS = config.HISTORY_MAX_CHARS
+WAKE_TIMEOUT = config.WAKE_TIMEOUT
+SILENCE_THRESHOLD = config.SILENCE_THRESHOLD
+CHANNELS = config.CHANNELS
+CHUNK_SIZE = config.CHUNK_SIZE
+HISTORY_INCLUDE_CHUNKS = config.HISTORY_INCLUDE_CHUNKS
+TTS_PYTHON_PATH = config.TTS_PYTHON_PATH
+TTS_SCRIPT_PATH = config.TTS_SCRIPT_PATH
+WAKE_SOUND_FILE = config.WAKE_SOUND_FILE
+SLEEP_SOUND_FILE = config.SLEEP_SOUND_FILE
 
 parser = ArgumentParser(description="Live transcription with flexible inference and embedding options.")
 parser.add_argument("-e", "--execute", action="store_true", help="Execute the commands returned by the inference model")
@@ -76,13 +74,14 @@ parser.add_argument("--remote-inference", help="Use remote inference. Specify th
 parser.add_argument("--remote-store", help="Specify the URL for the vector store server.")
 parser.add_argument("-s", "--silent", action="store_true", help="Disable TTS playback")
 parser.add_argument("--source", default=None, help="Manually set the audio source (index or name)")
-parser.add_argument("--whisper-model", default="turbo", help="Specify the Whisper model size")
+parser.add_argument("--whisper-model", default=config.WHISPER_MODEL, help="Specify the Whisper model size")
 parser.add_argument("--remote-transcribe", help="Use remote transcription. Specify the URL for the transcription server.")
 args = parser.parse_args()
 
-REMOTE_STORE_URL = args.remote_store
-REMOTE_INFERENCE_URL = args.remote_inference
-REMOTE_TRANSCRIBE_URL = args.remote_transcribe
+# Use config values as defaults, command line args override them
+REMOTE_STORE_URL = args.remote_store or config.REMOTE_STORE_URL
+REMOTE_INFERENCE_URL = args.remote_inference or config.REMOTE_INFERENCE_URL
+REMOTE_TRANSCRIBE_URL = args.remote_transcribe or config.REMOTE_TRANSCRIBE_URL
 
 audio_buffer = deque(maxlen=BUFFER_SIZE)
 small_audio_buffer = deque(maxlen=SMALL_BUFFER_SIZE)
@@ -431,13 +430,13 @@ async def main():
         "TTS_PYTHON_PATH": TTS_PYTHON_PATH,
         "TTS_SCRIPT_PATH": TTS_SCRIPT_PATH,
         "running_log": running_log,
-        "AMY_DISTANCE_THRESHOLD": 1.1,
-        "NA_DISTANCE_THRESHOLD": 1.4,
-        "HIP_DISTANCE_THRESHOLD": 1.1,
+        "AMY_DISTANCE_THRESHOLD": config.AMY_DISTANCE_THRESHOLD,
+        "NA_DISTANCE_THRESHOLD": config.NA_DISTANCE_THRESHOLD,
+        "HIP_DISTANCE_THRESHOLD": config.HIP_DISTANCE_THRESHOLD,
         "command_queue": command_queue,
         "session_data": None,
-        "QC_REPORT_DIR": "reports",
-        "GENERAL_REPORT_FILE": "general_report.txt",
+        "QC_REPORT_DIR": config.QC_REPORT_DIR,
+        "GENERAL_REPORT_FILE": config.GENERAL_REPORT_FILE,
     }
 
     os.makedirs(context['QC_REPORT_DIR'], exist_ok=True)
