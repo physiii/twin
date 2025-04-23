@@ -8,6 +8,8 @@ pulsectl
 nltk
 openai
 fuzzywuzzy
+python-Levenshtein
+rapidfuzz
 sentence_transformers
 pymilvus
 faster_whisper

@@ -15,6 +15,7 @@ from audio import (
     play_wake_sound,
     play_sleep_sound,
 )
+from rtsp_audio import create_rtsp_audio_stream
 from transcribe import transcribe_audio, init_transcription_model
 from generator import process_user_text
 from quality_control import generate_quality_control_report
@@ -120,45 +121,93 @@ def calculate_rms(audio_data):
 
 async def pause_media_players():
     """
-    Pauses media playback using playerctl.
+    Pauses media playback using playerctl, potentially remotely via SSH.
     If VLC is running and recognized by playerctl, it will also be paused.
     """
     loop = asyncio.get_running_loop()
+    ssh_target = config.SSH_HOST_TARGET
+    logger.debug(f"pause_media_players: SSH_HOST_TARGET from config = '{ssh_target}'")
+    
+    # Function to run playerctl command (potentially remotely)
+    async def run_playerctl(*args):
+        playerctl_cmd_parts = ['playerctl'] + list(args)
+        final_command = []
+        
+        if ssh_target:
+            # Construct the remote command string including DISPLAY export
+            remote_command_str = f"export DISPLAY=:0; {' '.join(playerctl_cmd_parts)}"
+            final_command = ['ssh', '-o', 'StrictHostKeyChecking=no', ssh_target, remote_command_str]
+        else:
+            final_command = playerctl_cmd_parts
+
+        logger.debug(f"Attempting to execute playerctl command: {' '.join(final_command)}")
+        try:
+            # Add timeout for safety
+            result = await asyncio.wait_for(loop.run_in_executor(
+                None, 
+                lambda: subprocess.run(final_command, capture_output=True, text=True, check=False)
+            ), timeout=10.0)
+            
+            stdout_decoded = result.stdout.strip()
+            stderr_decoded = result.stderr.strip()
+            
+            if result.returncode != 0:
+                # Don't log error if code is 1 (playerctl often exits 1 if no players found/running)
+                if result.returncode == 1 and not stderr_decoded:
+                     logger.debug(f"playerctl command exited 1 (likely no players): {' '.join(final_command)}")
+                else:
+                     logger.warning(f"playerctl command failed (Code: {result.returncode}): {' '.join(final_command)} - Stderr: {stderr_decoded}")
+                return None # Indicate failure or non-existence
+            else:
+                logger.debug(f"playerctl command successful: {' '.join(final_command)} - Stdout: {stdout_decoded}")
+                return stdout_decoded # Return stdout on success
+                
+        except asyncio.TimeoutError:
+             logger.error(f"Timeout executing playerctl command: {' '.join(final_command)}. SSH connection issue?")
+             return None
+        except FileNotFoundError:
+             # Handle potential FileNotFoundError for both ssh and playerctl
+             cmd_name = final_command[0] 
+             logger.error(f"playerctl/ssh command failed: '{cmd_name}' not found. Is it installed and in PATH?")
+             return None
+        except Exception as e:
+             logger.error(f"Error executing command {' '.join(final_command)}: {e}", exc_info=True)
+             return None
+
+    # --- Main logic using run_playerctl --- 
+    if ssh_target:
+        logger.info("Attempting to pause media players remotely via SSH")
+    else:
+        logger.info("Attempting to pause local media players")
+
     try:
         # 1. Pause any default player if it's currently playing
-        status_result = await loop.run_in_executor(
-            None, 
-            lambda: subprocess.run(['playerctl', 'status'], capture_output=True, text=True)
-        )
-        if status_result.stdout.strip() == 'Playing':
-            await loop.run_in_executor(
-                None, 
-                lambda: subprocess.run(['playerctl', 'pause'])
-            )
+        status = await run_playerctl('status')
+        if status == 'Playing':
+            await run_playerctl('pause')
+            logger.info("Pause command sent to default player.")
+        elif status is not None: # Check if status command succeeded but wasn't 'Playing'
+            logger.info(f"Default player status: {status}")
 
-        # 2. Check if VLC is recognized by playerctl, and if so, pause it if it's playing
-        players_result = await loop.run_in_executor(
-            None, 
-            lambda: subprocess.run(['playerctl', '-l'], capture_output=True, text=True)
-        )
-        players = players_result.stdout.strip().split('\n')
-        if 'vlc' in players:
-            vlc_status_result = await loop.run_in_executor(
-                None, 
-                lambda: subprocess.run(
-                    ['playerctl', '-p', 'vlc', 'status'], 
-                    capture_output=True, 
-                    text=True
-                )
-            )
-            if vlc_status_result.stdout.strip() == 'Playing':
-                await loop.run_in_executor(
-                    None, 
-                    lambda: subprocess.run(['playerctl', '-p', 'vlc', 'pause'])
-                )
-
+        # 2. Check if VLC is recognized by playerctl, and pause if playing
+        players_output = await run_playerctl('-l')
+        if players_output is not None:
+            players = players_output.split('\n')
+            if 'vlc' in players:
+                vlc_status = await run_playerctl('-p', 'vlc', 'status')
+                if vlc_status == 'Playing':
+                    await run_playerctl('-p', 'vlc', 'pause')
+                    logger.info("Pause command sent to VLC player.")
+                elif vlc_status is not None:
+                    logger.info(f"VLC player found but not playing (Status: {vlc_status}).")
+            else:
+                 logger.info("VLC player not found by playerctl.")
+        else:
+            logger.info("Could not list players via playerctl (or no players running/error occurred).")
+            
     except Exception as e:
-        logger.error(f"Error pausing media players: {e}")
+        # Catch any broader errors in the main logic using run_playerctl
+        logger.error(f"Unexpected error in pause_media_players logic: {e}", exc_info=True)
 
 async def process_buffer(transcription_model, use_remote_transcription, remote_transcribe_url, context):
     """
@@ -232,6 +281,7 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
         history_max_chars=HISTORY_MAX_CHARS,
         use_remote=use_remote_transcription,
         remote_url=remote_transcribe_url,
+        sample_rate=config.SAMPLE_RATE
     )
 
     # Process each recognized utterance
@@ -346,73 +396,80 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
         did_inference = False
 
 async def main():
+    # Debug the SSH target value as read from config
+    logger.info(f"*** STARTUP INFO: SSH_HOST_TARGET = '{config.SSH_HOST_TARGET}' ***")
+    
     log_available_audio_devices()
     devices = sd.query_devices()
     input_device = None  # Changed from empty string to None
 
-    # Try to find the specified input device
-    if args.source:
-        if args.source.isdigit():
-            input_device = int(args.source)
-        else:
-            for i, device in enumerate(devices):
-                if args.source.lower() in device["name"].lower():
-                    input_device = i
-                    break
-            
-            # If device name not found and we're looking for pulse, try to find it by number
-            if input_device is None and args.source.lower() == "pulse":
+    # Skip device detection if using RTSP
+    if config.AUDIO_SOURCE.lower() == 'rtsp':
+        logger.info(f"Using RTSP audio source: {config.RTSP_URL}")
+    else:
+        # Try to find the specified input device
+        if args.source:
+            if args.source.isdigit():
+                input_device = int(args.source)
+            else:
                 for i, device in enumerate(devices):
-                    if "pulse" in device["name"].lower() or (device.get("name", "").lower() == "pulse"):
+                    if args.source.lower() in device["name"].lower():
                         input_device = i
-                        logger.info(f"Found PulseAudio device at index {i}")
                         break
-            
-            # If still not found, try device 13 (common pulse index)
-            if input_device is None and args.source.lower() == "pulse":
-                try:
-                    # Find the device with pulse in the name
+                
+                # If device name not found and we're looking for pulse, try to find it by number
+                if input_device is None and args.source.lower() == "pulse":
                     for i, device in enumerate(devices):
-                        if i == 13 and device.get("max_input_channels", 0) > 0:
-                            input_device = 13
-                            logger.info("Using default PulseAudio device (13)")
+                        if "pulse" in device["name"].lower() or (device.get("name", "").lower() == "pulse"):
+                            input_device = i
+                            logger.info(f"Found PulseAudio device at index {i}")
                             break
-                except Exception as e:
-                    logger.error(f"Error finding pulse device: {e}")
-        
-        # If input_device is still None, try to find any working device
-        if input_device is None:
-            logger.warning(f"Specified audio source '{args.source}' not found. Trying fallback devices.")
-            
-            # Try common device indices for input
-            for test_id in [13, 14, 0, "default"]:
-                try:
-                    logger.info(f"Testing audio device {test_id}")
-                    with sd.InputStream(device=test_id, channels=1, samplerate=SAMPLE_RATE, blocksize=CHUNK_SIZE, dtype="float32"):
-                        logger.info(f"Found working audio device: {test_id}")
-                        input_device = test_id
-                        break
-                except Exception as e:
-                    logger.warning(f"Device {test_id} failed: {e}")
-            
-            # If still no device, try to find any with input channels
-            if input_device is None:
-                for i, device in enumerate(devices):
+                
+                # If still not found, try device 13 (common pulse index)
+                if input_device is None and args.source.lower() == "pulse":
                     try:
-                        if device.get("max_input_channels", 0) > 0:
-                            logger.info(f"Trying device {i}: {device.get('name', 'Unknown')} with {device.get('max_input_channels')} input channels")
-                            with sd.InputStream(device=i, channels=1, samplerate=SAMPLE_RATE, blocksize=CHUNK_SIZE, dtype="float32"):
-                                logger.info(f"Found working audio device: {i}")
-                                input_device = i
+                        # Find the device with pulse in the name
+                        for i, device in enumerate(devices):
+                            if i == 13 and device.get("max_input_channels", 0) > 0:
+                                input_device = 13
+                                logger.info("Using default PulseAudio device (13)")
                                 break
                     except Exception as e:
-                        logger.warning(f"Device {i} failed: {e}")
-    
-    if input_device is None:
-        logger.error("No suitable audio device found. Exiting.")
-        return
+                        logger.error(f"Error finding pulse device: {e}")
+            
+            # If input_device is still None, try to find any working device
+            if input_device is None:
+                logger.warning(f"Specified audio source '{args.source}' not found. Trying fallback devices.")
+                
+                # Try common device indices for input
+                for test_id in [13, 14, 0, "default"]:
+                    try:
+                        logger.info(f"Testing audio device {test_id}")
+                        with sd.InputStream(device=test_id, channels=1, samplerate=SAMPLE_RATE, blocksize=CHUNK_SIZE, dtype="float32"):
+                            logger.info(f"Found working audio device: {test_id}")
+                            input_device = test_id
+                            break
+                    except Exception as e:
+                        logger.warning(f"Device {test_id} failed: {e}")
+                
+                # If still no device, try to find any with input channels
+                if input_device is None:
+                    for i, device in enumerate(devices):
+                        try:
+                            if device.get("max_input_channels", 0) > 0:
+                                logger.info(f"Trying device {i}: {device.get('name', 'Unknown')} with {device.get('max_input_channels')} input channels")
+                                with sd.InputStream(device=i, channels=1, samplerate=SAMPLE_RATE, blocksize=CHUNK_SIZE, dtype="float32"):
+                                    logger.info(f"Found working audio device: {i}")
+                                    input_device = i
+                                    break
+                        except Exception as e:
+                            logger.warning(f"Device {i} failed: {e}")
+        
+        if input_device is None and config.AUDIO_SOURCE.lower() != 'rtsp':
+            logger.error("No suitable audio device found. Exiting.")
+            return
 
-    logger.info(f"Using audio input device: {input_device}")
+        logger.info(f"Using audio input device: {input_device}")
     
     use_remote_transcription = args.remote_transcribe is not None
     transcription_model = (
@@ -443,42 +500,66 @@ async def main():
     runner = await start_webserver(context)
 
     try:
-        with sd.InputStream(
-            callback=lambda indata, frames, time_info, status: audio_callback(
-                indata, frames, time_info, status, audio_queue, audio_buffer, small_audio_buffer
-            ),
-            channels=CHANNELS,
-            samplerate=SAMPLE_RATE,
-            blocksize=CHUNK_SIZE,
-            device=input_device,
-            dtype="float32",
-        ):
-            inference_type = (
-                f"remote inference ({REMOTE_INFERENCE_URL})"
-                if REMOTE_INFERENCE_URL
-                else "Local inference"
-            )
-            transcription_type = (
-                f"remote ({REMOTE_TRANSCRIBE_URL})"
-                if use_remote_transcription
-                else f"local ({args.whisper_model})"
-            )
-            logger.info(
-                f"Using {inference_type} for inference, and {transcription_type} for transcription."
-            )
-            while True:
-                await process_buffer(
-                    transcription_model,
-                    use_remote_transcription,
-                    REMOTE_TRANSCRIBE_URL,
-                    context,
+        # Choose audio source based on configuration
+        if config.AUDIO_SOURCE.lower() == 'rtsp':
+            logger.info(f"Using RTSP audio source: {config.RTSP_URL}")
+            # Create RTSP audio stream with the same callback interface
+            audio_stream = create_rtsp_audio_stream(
+                lambda indata, frames, time_info, status: audio_callback(
+                    indata, frames, time_info, status, audio_queue, audio_buffer, small_audio_buffer
                 )
+            )
+            # No need for a context manager with the RTSP stream
+        else:
+            # Use traditional microphone input with sounddevice
+            logger.info(f"Using microphone audio input device: {input_device}")
+            audio_stream = sd.InputStream(
+                callback=lambda indata, frames, time_info, status: audio_callback(
+                    indata, frames, time_info, status, audio_queue, audio_buffer, small_audio_buffer
+                ),
+                channels=CHANNELS,
+                samplerate=SAMPLE_RATE,
+                blocksize=CHUNK_SIZE,
+                device=input_device,
+                dtype="float32",
+            )
+            audio_stream.start()
+
+        # Log active configuration
+        inference_type = (
+            f"remote inference ({REMOTE_INFERENCE_URL})"
+            if REMOTE_INFERENCE_URL
+            else "Local inference"
+        )
+        transcription_type = (
+            f"remote ({REMOTE_TRANSCRIBE_URL})"
+            if use_remote_transcription
+            else f"local ({args.whisper_model})"
+        )
+        logger.info(
+            f"Using {inference_type} for inference, and {transcription_type} for transcription."
+        )
+        while True:
+            await process_buffer(
+                transcription_model,
+                use_remote_transcription,
+                REMOTE_TRANSCRIBE_URL,
+                context,
+            )
     except KeyboardInterrupt:
         logger.info("Streaming stopped.")
     except Exception as e:
         logger.error(f"An unexpected error occurred: {str(e)}")
         logger.exception("An error occurred during execution.")
     finally:
+        # Clean up audio stream
+        if audio_stream:
+            if hasattr(audio_stream, 'stop'):
+                audio_stream.stop()
+            elif hasattr(audio_stream, 'close'):
+                audio_stream.close()
+                
+        # Clean up web server
         await runner.cleanup()
 
 if __name__ == "__main__":

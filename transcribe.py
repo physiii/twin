@@ -50,28 +50,39 @@ def filter_segments(segments, confidence_threshold=0.6, min_duration=0.5, max_du
             filtered.append(segment)
     return filtered
 
-async def transcribe_audio(model=None, audio_data=None, language="en", similarity_threshold=85, 
+async def transcribe_audio(model=None, audio_data=None, audio_buffer=None, language="en", similarity_threshold=85, 
                            recent_transcriptions=None, history_buffer=None, history_max_chars=4000, 
-                           use_remote=False, remote_url=None):
+                           use_remote=False, remote_url=None, sample_rate=16000):
+    """Transcribes audio data, handling both numpy array and BytesIO buffer inputs."""
     if use_remote and remote_url:
         try:
-            # Debug logging for input audio
-            audio_max = np.max(np.abs(audio_data)) if audio_data is not None else 0
-            audio_mean = np.mean(np.abs(audio_data)) if audio_data is not None else 0
-            audio_shape = audio_data.shape if audio_data is not None else "None"
-            logger.debug(f"Sending audio to remote: shape={audio_shape}, max={audio_max:.6f}, mean={audio_mean:.6f}")
-            
-            # Convert audio data to WAV format
-            buffer = io.BytesIO()
-            sf.write(buffer, audio_data, 16000, format='WAV')
-            buffer.seek(0)
-            
-            # Log buffer size
-            buffer_size = buffer.getbuffer().nbytes
-            logger.debug(f"Audio buffer size: {buffer_size} bytes")
+            send_buffer = None
+            if audio_buffer:
+                # Use the provided buffer directly
+                audio_buffer.seek(0) # Ensure buffer is at the start
+                send_buffer = audio_buffer
+                buffer_size = send_buffer.getbuffer().nbytes
+                logger.debug(f"Using provided audio buffer (Size: {buffer_size} bytes)")
+            elif audio_data is not None:
+                # Convert numpy array to WAV buffer
+                audio_max = np.max(np.abs(audio_data))
+                audio_mean = np.mean(np.abs(audio_data))
+                audio_shape = audio_data.shape
+                logger.debug(f"Converting numpy audio data: shape={audio_shape}, max={audio_max:.6f}, mean={audio_mean:.6f}, dtype={audio_data.dtype}")
+                
+                buffer = io.BytesIO()
+                # Explicitly write as FLOAT (32-bit float) to match input numpy array
+                sf.write(buffer, audio_data, sample_rate, format='WAV', subtype='FLOAT')
+                buffer.seek(0)
+                send_buffer = buffer
+                buffer_size = send_buffer.getbuffer().nbytes
+                logger.debug(f"Converted numpy audio to buffer (Size: {buffer_size} bytes, Format: WAV/FLOAT)")
+            else:
+                logger.error("Remote transcription called with no audio data or buffer.")
+                return [], 0
 
-            # Send the audio data to the remote server
-            files = {'file': ('audio.wav', buffer, 'audio/wav')}
+            # Send the buffer to the remote server
+            files = {'file': ('audio.wav', send_buffer, 'audio/wav')}
             response = requests.post(remote_url, files=files)
             response.raise_for_status()
 
@@ -93,8 +104,11 @@ async def transcribe_audio(model=None, audio_data=None, language="en", similarit
         except requests.RequestException as e:
             logger.error(f"Error in remote transcription: {str(e)}")
             return [], 0
-    else:
-        # Local transcription with enhanced filtering
+        except Exception as e:
+             logger.error(f"Unexpected error during remote transcription prep/send: {e}", exc_info=True)
+             return [], 0
+    elif audio_data is not None:
+        # Local transcription requires numpy array
         transcription_start = time.time()
         segments, _ = model.transcribe(
             audio_data, 
@@ -122,6 +136,9 @@ async def transcribe_audio(model=None, audio_data=None, language="en", similarit
                     history_buffer.append(text)
 
         return transcriptions, transcription_time
+    else:
+        logger.error("Local transcription called without audio data.")
+        return [], 0
 
 def get_history_text(history_buffer, history_max_chars):
     history_text = " ".join(history_buffer)

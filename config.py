@@ -10,13 +10,26 @@ load_dotenv(dotenv_path=env_path)
 # Set up logger
 logger = logging.getLogger("twin")
 
+# Debug output for .env loading
+env_silence_threshold = os.getenv('SILENCE_THRESHOLD')
+logger.warning(f"Loading SILENCE_THRESHOLD from .env: '{env_silence_threshold}'")
+
 # Audio settings
 SAMPLE_RATE = int(os.getenv('SAMPLE_RATE', '16000'))
 BUFFER_DURATION = float(os.getenv('BUFFER_DURATION', '3'))
 SMALL_BUFFER_DURATION = float(os.getenv('SMALL_BUFFER_DURATION', '0.2'))
 CHANNELS = int(os.getenv('CHANNELS', '1'))
 CHUNK_SIZE = int(os.getenv('CHUNK_SIZE', '1024'))
-SILENCE_THRESHOLD = float(os.getenv('SILENCE_THRESHOLD', '0.0005'))
+SILENCE_THRESHOLD = float(os.getenv('SILENCE_THRESHOLD', '0.01')) # Default to 0.01
+
+# Debug output for loaded value
+logger.warning(f"Final SILENCE_THRESHOLD: {SILENCE_THRESHOLD}")
+
+# RTSP Stream settings
+AUDIO_SOURCE = os.getenv('AUDIO_SOURCE', 'microphone')
+RTSP_URL = os.getenv('RTSP_URL', '')
+RTSP_LATENCY_FLAGS = os.getenv('RTSP_LATENCY_FLAGS', '')
+RTSP_AUDIO_CODEC = os.getenv('RTSP_AUDIO_CODEC', 'aac')
 
 # Transcription settings
 LANGUAGE = os.getenv('LANGUAGE', 'en')
@@ -45,9 +58,10 @@ TTS_PYTHON_PATH = os.getenv('TTS_PYTHON_PATH', '/home/andy/venvs/tts-env/bin/pyt
 TTS_SCRIPT_PATH = os.getenv('TTS_SCRIPT_PATH', '/home/andy/scripts/tts/tts.py')
 
 # Remote services
-REMOTE_STORE_URL = os.getenv('REMOTE_STORE_URL', None)
-REMOTE_INFERENCE_URL = os.getenv('REMOTE_INFERENCE_URL', None)
-REMOTE_TRANSCRIBE_URL = os.getenv('REMOTE_TRANSCRIBE_URL', None)
+REMOTE_STORE_URL = os.getenv('REMOTE_STORE_URL', '')
+REMOTE_INFERENCE_URL = os.getenv('REMOTE_INFERENCE_URL', '')
+REMOTE_TRANSCRIBE_URL = os.getenv('REMOTE_TRANSCRIBE_URL', '')
+SSH_HOST_TARGET = os.getenv('SSH_HOST_TARGET', None) # e.g., user@hostname
 
 # Compute type - dependent on available hardware
 DEVICE_TYPE = os.getenv('DEVICE_TYPE')
@@ -76,6 +90,10 @@ def get_config_dict():
         "CHANNELS": CHANNELS,
         "CHUNK_SIZE": CHUNK_SIZE,
         "SILENCE_THRESHOLD": SILENCE_THRESHOLD,
+        "AUDIO_SOURCE": AUDIO_SOURCE,
+        "RTSP_URL": RTSP_URL,
+        "RTSP_LATENCY_FLAGS": RTSP_LATENCY_FLAGS,
+        "RTSP_AUDIO_CODEC": RTSP_AUDIO_CODEC,
         "LANGUAGE": LANGUAGE,
         "SIMILARITY_THRESHOLD": SIMILARITY_THRESHOLD,
         "RISK_THRESHOLD": RISK_THRESHOLD,
@@ -94,6 +112,7 @@ def get_config_dict():
         "REMOTE_STORE_URL": REMOTE_STORE_URL,
         "REMOTE_INFERENCE_URL": REMOTE_INFERENCE_URL,
         "REMOTE_TRANSCRIBE_URL": REMOTE_TRANSCRIBE_URL,
+        "SSH_HOST_TARGET": SSH_HOST_TARGET,
         "DEVICE_TYPE": DEVICE_TYPE,
         "COMPUTE_TYPE": COMPUTE_TYPE,
         "QC_REPORT_DIR": QC_REPORT_DIR,

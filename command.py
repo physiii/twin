@@ -145,15 +145,21 @@ async def execute_single_command(command, cooldown_period, context, self_text=""
             logger.warning(f"⏳ Command in cooldown: {command_str[:50]}...")
             return (False, "", "Command in cooldown")
 
+        # Check if we need to execute via SSH
+        import config  # Import config to check for SSH_HOST_TARGET
+        ssh_target = getattr(config, 'SSH_HOST_TARGET', None)
+        logger.debug(f"🔌 SSH target check: {ssh_target}")
+        
         # Detect display for GUI commands
         display = ":0"
         try:
-            who_result = subprocess.run(['who'], capture_output=True, text=True)
-            for line in who_result.stdout.splitlines():
-                if '(:' in line:
-                    display = f":{line.split('(:')[-1].split(')')[0]}"
-                    logger.debug(f"🖥️  Detected display: {display}")
-                    break
+            if not ssh_target:  # Only try to detect local display if not using SSH
+                who_result = subprocess.run(['who'], capture_output=True, text=True)
+                for line in who_result.stdout.splitlines():
+                    if '(:' in line:
+                        display = f":{line.split('(:')[-1].split(')')[0]}"
+                        logger.debug(f"🖥️  Detected display: {display}")
+                        break
         except Exception as e:
             logger.error(f"🔴 Display detection failed: {str(e)}")
 
@@ -163,12 +169,24 @@ async def execute_single_command(command, cooldown_period, context, self_text=""
         logger.debug(f"🧩 Execution environment: DISPLAY={display}")
 
         # Execute command
-        proc = await asyncio.create_subprocess_shell(
-            command_str,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env
-        )
+        if ssh_target:
+            # For SSH execution, wrap the command in an SSH call
+            ssh_command_str = f"ssh -o StrictHostKeyChecking=no {ssh_target} 'export DISPLAY={display}; {command_str}'"
+            logger.info(f"🔄 Executing via SSH: {ssh_command_str[:100]}...")
+            
+            proc = await asyncio.create_subprocess_shell(
+                ssh_command_str,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+        else:
+            # Normal local execution
+            proc = await asyncio.create_subprocess_shell(
+                command_str,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env
+            )
 
         stdout, stderr = await proc.communicate()
         exit_code = await proc.wait()

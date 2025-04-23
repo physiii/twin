@@ -103,13 +103,34 @@ async def run_inference(source_text, accumbens_commands, tool_info, use_remote_i
     This function loads the text from stores/self/office.txt and injects it into the prompt
     as {self}, then performs the inference using the model.
     """
-    # 1. Load the text from office.txt
-    # Adjust the file path if your structure is different.
-    home_directory = os.path.expanduser("~")
-    self_file_path = os.path.join(home_directory, "self.txt")
-    with open(self_file_path, "r", encoding="utf-8") as f:
-        self_text = f.read().strip()
-
+    # 1. Load the text from self files
+    # Try multiple paths for self files in order of preference, with fallbacks
+    self_text = ""  # Default empty string if no files are found
+    
+    # Possible locations for self text files
+    self_locations = [
+        os.path.join("/app/stores/self", "office.txt"),     # Docker container path
+        os.path.join("/app/stores/self", "generic.txt"),    # Generic fallback
+        os.path.join("stores/self", "office.txt"),          # Relative path
+        os.path.join("stores/self", "generic.txt")          # Relative generic fallback
+    ]
+    
+    # Try each location until we find one that works
+    for location in self_locations:
+        try:
+            if os.path.exists(location):
+                with open(location, "r", encoding="utf-8") as f:
+                    self_text = f.read().strip()
+                    logger.info(f"Loaded self text from {location}")
+                    break  # Stop looking once we find a file
+        except Exception as e:
+            logger.warning(f"Failed to read self file at {location}: {e}")
+    
+    # If we didn't find any files, use a default
+    if not self_text:
+        logger.warning("No self text files found! Using minimal default.")
+        self_text = "You are an assistant that helps with computer tasks. You are running on a system with Linux."
+    
     # 2. Format the prompt, injecting self_text
     prompt = PROMPT.format(
         source_text=source_text,
