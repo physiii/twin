@@ -1,0 +1,27 @@
+[Unit]
+Description=Twin RTSP Microphone Server
+After=sound.target network.target
+Wants=sound.target
+
+[Service]
+Type=simple
+User=twin
+Group=audio
+WorkingDirectory=/path/to/twin
+Environment=PULSE_RUNTIME_PATH=/run/user/1000/pulse
+ExecStart=/usr/bin/python3 /path/to/twin/scripts/rtsp_mic_server.py --port 8554 --device default
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rtsp-mic
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/run/user/1000
+
+[Install]
+WantedBy=multi-user.target 

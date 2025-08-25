@@ -1,0 +1,55 @@
+{
+  "home_assistant": {
+    "url": "http://homeassistant:8123",
+    "token_env": "HA_TOKEN",
+    "sync_rooms": true
+  },
+  "source_mappings": {
+    "http://192.168.1.150:8554/audio.wav": "living_room",
+    "rtsp://192.168.1.100:554/audio": "office",
+    "rtsp://192.168.1.101:554/audio": "kitchen", 
+    "rtsp://192.168.1.102:554/audio": "living_room",
+    "rtsp://192.168.1.103:554/audio": "bedroom",
+    "device_13": "office",
+    "device_14": "kitchen",
+    "pulse": "office"
+  },
+  "room_aliases": {
+    "media": ["media_room", "entertainment", "tv_room"],
+    "living_room": ["living", "lounge", "family_room"],
+    "master_bedroom": ["bedroom", "master"],
+    "office": ["study", "den", "work_room"]
+  },
+  "non_ha_devices": {
+    "office": {
+      "philips_hue": {
+        "bridge_ip": "192.168.1.129",
+        "lights": [1, 2, 3, 4, 5, 6, 7, 8, 9]
+      },
+      "midea_ac": {
+        "ip": "192.168.1.150",
+        "token": "env:MIDEA_TOKEN",
+        "key": "env:MIDEA_KEY"
+      }
+    },
+    "kitchen": {
+      "philips_hue": {
+        "bridge_ip": "192.168.1.129", 
+        "lights": [5, 6, 7, 8]
+      }
+    },
+    "living_room": {
+      "philips_hue": {
+        "bridge_ip": "192.168.1.129",
+        "lights": [10, 11, 12, 13, 14]
+      }
+    },
+    "bedroom": {
+      "philips_hue": {
+        "bridge_ip": "192.168.1.129",
+        "lights": [9, 10, 11, 12]
+      }
+    }
+  },
+  "default_location": "office"
+} 

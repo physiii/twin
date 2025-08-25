@@ -110,24 +110,56 @@ async def execute_single_command(command, cooldown_period, context, self_text=""
                 logger.warning("⚠️  Empty command string received")
                 return (False, "", "Empty command")
 
-        # --- NEW: Process light commands to replace placeholders ---
-        if "lights" in command_str and "<room_name>" in command_str:
-            # Extract 'self' location using self_text passed from execute_commands
-            self_location = "office"  # Default fallback
-            if self_text:
-                # Try to find location in self text
-                if "office" in self_text.lower():
-                    self_location = "office"
-                elif "kitchen" in self_text.lower():
-                    self_location = "kitchen"
-                elif "bedroom" in self_text.lower():
-                    self_location = "bedroom"
-                elif "media" in self_text.lower():
-                    self_location = "media"
+        # --- Enhanced room detection with multiple sources ---
+        if ("lights" in command_str or "thermostat" in command_str) and "<room_name>" in command_str:
+            room_location = None
             
-            # Replace <room_name> with the actual location
-            command_str = command_str.replace("<room_name>", self_location)
-            logger.info(f"🏠 Replaced room placeholder: '{command_str}'")
+            # Get room manager from context
+            room_manager = context.get("ROOM_MANAGER") if hasattr(context, 'get') else None
+            
+            # Priority 1: Explicit room in transcript (if we have session data)
+            if hasattr(context, 'get') and context.get('session_data'):
+                latest_transcripts = context['session_data'].get('after_transcriptions', [])
+                if latest_transcripts and room_manager:
+                    room_from_transcript = room_manager.resolve_room_from_transcript(latest_transcripts[-1])
+                    if room_from_transcript:
+                        room_location = room_from_transcript
+                        logger.info(f"🎯 Room from transcript: '{room_from_transcript}'")
+            
+            # Priority 2: Source-based location from context
+            if not room_location and hasattr(context, 'get'):
+                room_location = context.get("DETECTED_LOCATION")
+                if room_location:
+                    logger.info(f"🎯 Room from source: '{room_location}'")
+            
+            # Priority 3: Self-text analysis (legacy fallback)
+            if not room_location and self_text:
+                if "office" in self_text.lower():
+                    room_location = "office"
+                elif "kitchen" in self_text.lower():
+                    room_location = "kitchen"
+                elif "bedroom" in self_text.lower():
+                    room_location = "bedroom"
+                elif "media" in self_text.lower():
+                    room_location = "media"
+                if room_location:
+                    logger.info(f"🎯 Room from self-text: '{room_location}'")
+            
+            # Priority 4: Default fallback
+            if not room_location:
+                room_location = "office"
+                logger.info(f"🎯 Using default room: '{room_location}'")
+            
+            # Validate command can be executed in this room
+            if room_manager:
+                valid, message = room_manager.validate_room_command(command_str, room_location)
+                if not valid:
+                    logger.warning(f"⚠️ Command validation failed: {message}")
+                    return (False, "", message)
+            
+            # Replace placeholder
+            command_str = command_str.replace("<room_name>", room_location)
+            logger.info(f"🏠 Executing in room '{room_location}': {command_str}")
         # ---------------------------------------------------------
 
         # --- NEW: sanitize angle-bracket placeholders (avoid shell redirect) ---

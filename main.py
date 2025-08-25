@@ -21,6 +21,7 @@ from generator import process_user_text
 from quality_control import generate_quality_control_report
 from webserver import start_webserver
 from command import execute_commands
+from room_manager import get_room_manager
 import uuid
 import os
 import logging
@@ -478,6 +479,17 @@ async def main():
         else init_transcription_model(args.whisper_model, DEVICE_TYPE, COMPUTE_TYPE)
     )
 
+    # Determine location based on audio source
+    if config.AUDIO_SOURCE.lower() == 'rtsp':
+        current_source = config.RTSP_URL
+    else:
+        current_source = args.source or input_device
+    
+    # Get room manager and detect location for this source
+    room_manager = get_room_manager()
+    detected_location = room_manager.get_location_from_source(str(current_source))
+    logger.info(f"🏠 Detected location: {detected_location} for source: {current_source}")
+
     context = {
         "REMOTE_STORE_URL": REMOTE_STORE_URL,
         "REMOTE_INFERENCE_URL": REMOTE_INFERENCE_URL,
@@ -494,6 +506,9 @@ async def main():
         "session_data": None,
         "QC_REPORT_DIR": config.QC_REPORT_DIR,
         "GENERAL_REPORT_FILE": config.GENERAL_REPORT_FILE,
+        "DETECTED_LOCATION": detected_location,
+        "AUDIO_SOURCE": current_source,
+        "ROOM_MANAGER": room_manager,
     }
 
     os.makedirs(context['QC_REPORT_DIR'], exist_ok=True)
