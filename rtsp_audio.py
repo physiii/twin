@@ -118,8 +118,8 @@ class RTSPAudioCapture:
                     else:
                         self.log_counter = 0
                         
-                    if self.log_counter % 100 == 0:  # Log every 100 chunks
-                        logger.info(f"RTSP audio stats: min={np.min(audio_array):.4f}, max={np.max(audio_array):.4f}, mean={np.mean(audio_array):.4f}, shape={audio_array.shape}")
+                    # if self.log_counter % 100 == 0:  # Log every 100 chunks
+                    #     logger.info(f"RTSP audio stats: min={np.min(audio_array):.4f}, max={np.max(audio_array):.4f}, mean={np.mean(audio_array):.4f}, shape={audio_array.shape}")
                     
                     # Put in the queue for the callback thread
                     self.audio_queue.put(audio_array)

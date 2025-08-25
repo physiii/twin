@@ -1,5 +1,5 @@
 #!/bin/bash
-# Quick launcher for Twin RTSP Microphone Server
+# Quick launcher for Twin HTTP Audio Streaming Server
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -10,7 +10,7 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RTSP_SCRIPT="$SCRIPT_DIR/rtsp_mic_server.py"
 
-echo -e "${BLUE}🤖 Twin RTSP Microphone Server Launcher${NC}"
+echo -e "${BLUE}🤖 Twin HTTP Audio Streaming Server Launcher${NC}"
 echo "========================================"
 echo
 
@@ -29,7 +29,7 @@ start_server() {
     echo -e "${GREEN}🚀 Starting: $description${NC}"
     echo "   Port: $port"
     echo "   Device: $device"
-    echo "   URL: rtsp://$(hostname -I | awk '{print $1}'):$port/audio"
+    echo "   URL: http://$(hostname -I | awk '{print $1}'):$port"
     echo
     
     exec python3 "$RTSP_SCRIPT" --port "$port" --device "$device"
@@ -90,8 +90,8 @@ case $choice in
         python3 "$RTSP_SCRIPT" --list-devices
         ;;
     7)
-        read -p "RTSP URL to test [rtsp://localhost:8554/audio]: " test_url
-        test_url=${test_url:-rtsp://localhost:8554/audio}
+        read -p "HTTP URL to test [http://localhost:8554]: " test_url
+        test_url=${test_url:-http://localhost:8554}
         
         echo "Testing stream: $test_url"
         echo "Press Ctrl+C to stop"

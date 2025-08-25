@@ -1,0 +1,29 @@
+[Unit]
+Description=RTSP Microphone Client
+After=network.target pulseaudio.service
+Wants=pulseaudio.service
+
+[Service]
+Type=simple
+User=%i
+Group=%i
+WorkingDirectory=%h/scripts
+ExecStart=/usr/bin/python3 %h/scripts/rtsp_mic_client.py --server 192.168.1.40 --path %i
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Environment variables
+Environment=PYTHONUNBUFFERED=1
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=%h/scripts
+
+[Install]
+WantedBy=multi-user.target
+

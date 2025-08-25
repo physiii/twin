@@ -5,7 +5,7 @@
     "sync_rooms": true
   },
   "source_mappings": {
-    "http://192.168.1.150:8554/audio.wav": "living_room",
+    "http://192.168.1.150:8555": "living_room",
     "rtsp://192.168.1.100:554/audio": "office",
     "rtsp://192.168.1.101:554/audio": "kitchen", 
     "rtsp://192.168.1.102:554/audio": "living_room",
@@ -18,7 +18,8 @@
     "media": ["media_room", "entertainment", "tv_room"],
     "living_room": ["living", "lounge", "family_room"],
     "master_bedroom": ["bedroom", "master"],
-    "office": ["study", "den", "work_room"]
+    "office": ["study", "den", "work_room"],
+    "current_location": ["here", "local", "this_room"]
   },
   "non_ha_devices": {
     "office": {

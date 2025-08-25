@@ -22,6 +22,7 @@ import signal
 import argparse
 import logging
 from typing import Optional
+import socket
 
 # Configure logging
 logging.basicConfig(
@@ -151,36 +152,23 @@ class AudioStreamingServer:
             pass
     
     def build_ffmpeg_command(self) -> list:
-        """Build the FFmpeg command for audio streaming"""
-        if self.use_udp:
-            # Simple UDP streaming - direct raw audio
-            cmd = [
-                'ffmpeg',
-                '-f', 'pulse',  # Use PulseAudio/PipeWire input
-                '-i', self.audio_device,  # Audio device
-                '-acodec', 'pcm_s16le',  # Audio codec
-                '-ar', str(self.sample_rate),  # Sample rate
-                '-ac', str(self.channels),  # Number of channels
-                '-f', 'wav',  # WAV format for compatibility
-                f'udp://0.0.0.0:{self.port}'  # UDP streaming
-            ]
-        else:
-            # HTTP Live Streaming (HLS) - more reliable than RTSP
-            cmd = [
-                'ffmpeg',
-                '-f', 'pulse',  # Use PulseAudio/PipeWire input
-                '-i', self.audio_device,  # Audio device
-                '-acodec', 'pcm_s16le',  # Audio codec
-                '-ar', str(self.sample_rate),  # Sample rate
-                '-ac', str(self.channels),  # Number of channels
-                '-f', 'wav',  # WAV format
-                '-listen', '1',  # Listen for HTTP connections
-                f'http://0.0.0.0:{self.port}/audio.wav'  # HTTP URL
-            ]
-        
+        """Build the FFmpeg command for pushing audio to the RTSP server"""
+        # This command sends the audio stream to the mediamtx RTSP server
+        cmd = [
+            'ffmpeg',
+            '-f', 'pulse',
+            '-i', self.audio_device,
+            '-acodec', 'pcm_s16le',
+            '-ar', str(self.sample_rate),
+            '-ac', str(self.channels),
+            '-f', 'rtsp',
+            '-rtsp_transport', 'tcp',
+            # Stream to the 'mic' path on the local RTSP server
+            f'rtsp://localhost:{self.port}/mic'
+        ]
         return cmd
     
-    def start_server(self) -> bool:
+    def start_streaming(self) -> bool:
         """Start the audio streaming server"""
         if self.running:
             logger.warning("Server is already running")
@@ -190,50 +178,39 @@ class AudioStreamingServer:
         if not self.check_audio_device():
             return False
         
-        protocol = "UDP" if self.use_udp else "HTTP"
-        logger.info(f"🚀 Starting {protocol} audio streaming server on port {self.port}")
-        
-        if self.use_udp:
-            logger.info(f"📡 Stream URL: udp://localhost:{self.port}")
-        else:
-            logger.info(f"📡 Stream URL: http://localhost:{self.port}/audio.wav")
-            
-        logger.info(f"🎤 Audio device: {self.audio_device}")
-        logger.info(f"📊 Sample rate: {self.sample_rate}Hz, Channels: {self.channels}")
-        
-        cmd = self.build_ffmpeg_command()
-        logger.debug(f"FFmpeg command: {' '.join(cmd)}")
-        
+        # Get the primary IP address to show a connectable URL
         try:
-            self.ffmpeg_process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True
-            )
-            
-            # Give FFmpeg a moment to start
-            time.sleep(2)
-            
-            # Check if process is still running
-            if self.ffmpeg_process.poll() is None:
-                self.running = True
-                logger.info(f"✅ {protocol} audio server started successfully")
-                
-                if self.use_udp:
-                    logger.info(f"🔗 Connect Twin with: --source udp://your_ip:{self.port}")
-                else:
-                    logger.info(f"🔗 Connect Twin with: --source http://your_ip:{self.port}/audio.wav")
-                return True
-            else:
-                stdout, stderr = self.ffmpeg_process.communicate()
-                logger.error("❌ FFmpeg failed to start")
-                logger.error(f"Stdout: {stdout}")
-                logger.error(f"Stderr: {stderr}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"❌ Error starting server: {e}")
+            ip_addr = socket.gethostbyname(socket.gethostname())
+        except socket.gaierror:
+            ip_addr = "127.0.0.1"
+
+        logger.info(f"🎤 Starting microphone capture...")
+        logger.info(f"   Audio device: {self.audio_device}")
+        logger.info(f"   Pushing to RTSP server on port {self.port}")
+        logger.info("-" * 40)
+        logger.info(f"✅ Your RTSP feed is now available at:")
+        logger.info(f"   rtsp://{ip_addr}:{self.port}/mic")
+        logger.info("-" * 40)
+        
+        self.ffmpeg_process = subprocess.Popen(
+            self.build_ffmpeg_command(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True
+        )
+        
+        # Wait a moment for FFmpeg to connect to the RTSP server
+        time.sleep(3)
+
+        if self.ffmpeg_process.poll() is None:
+            self.running = True
+            logger.info("✅ FFmpeg is successfully streaming to the RTSP server.")
+            return True
+        else:
+            stdout, stderr = self.ffmpeg_process.communicate()
+            logger.error("❌ FFmpeg failed to start")
+            logger.error(f"Stdout: {stdout}")
+            logger.error(f"Stderr: {stderr}")
             return False
     
     def stop_server(self) -> None:
@@ -277,7 +254,7 @@ class AudioStreamingServer:
             logger.error("❌ Dependency check failed")
             sys.exit(1)
         
-        if not self.start_server():
+        if not self.start_streaming():
             logger.error("❌ Failed to start server")
             sys.exit(1)
         
@@ -299,21 +276,22 @@ class AudioStreamingServer:
             self.stop_server()
 
 def main():
+    """Main function to run the RTSP server"""
     parser = argparse.ArgumentParser(
-        description="Audio Streaming Server for Twin Voice Assistant",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python rtsp_mic_server.py                    # Use defaults (HTTP)
-  python rtsp_mic_server.py --port 8555        # Custom port
-  python rtsp_mic_server.py --device pulse     # Specific device
-  python rtsp_mic_server.py --udp              # Use UDP streaming
-  python rtsp_mic_server.py --list-devices     # List audio devices
-  
-Connect to Twin:
-  python main.py --source http://localhost:8554/audio.wav
-  python main.py --source udp://localhost:8554  # for UDP mode
-        """
+        description="""
+Twin Microphone to RTSP Streamer
+--------------------------------
+Captures microphone audio and sends it to a running RTSP server (like mediamtx).
+
+Example Usage:
+  # 1. Run the RTSP server (./mediamtx)
+  # 2. Run this script
+  python rtsp_mic_server.py
+
+Connect to Twin or ffplay using:
+  rtsp://<server_ip>:8554/mic
+""",
+        formatter_class=argparse.RawTextHelpFormatter
     )
     
     parser.add_argument(
@@ -356,12 +334,6 @@ Connect to Twin:
         help='Enable verbose logging'
     )
     
-    parser.add_argument(
-        '--udp', '-u',
-        action='store_true',
-        help='Use UDP streaming instead of HTTP streaming'
-    )
-    
     args = parser.parse_args()
     
     if args.verbose:
@@ -372,8 +344,7 @@ Connect to Twin:
         port=args.port,
         audio_device=args.device,
         sample_rate=args.sample_rate,
-        channels=args.channels,
-        use_udp=args.udp
+        channels=args.channels
     )
     
     if args.list_devices:

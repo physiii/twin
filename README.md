@@ -491,7 +491,7 @@ python main.py -e --source pulse
 
 2. **Docker Compose:**
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 3. **With Remote Services:**
@@ -523,8 +523,8 @@ docker logs twin-app
 docker logs -f twin-app
 
 # View specific service logs
-docker-compose logs inference
-docker-compose logs vector-store
+docker compose logs inference
+docker compose logs vector-store
 ```
 
 ### Log Files

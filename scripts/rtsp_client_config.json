@@ -1,0 +1,44 @@
+{
+  "rtsp_server": {
+    "ip": "192.168.1.40",
+    "port": 8554
+  },
+  "rooms": {
+    "office": {
+      "path": "office",
+      "audio_device": "default",
+      "sample_rate": 16000,
+      "channels": 1,
+      "description": "Office microphone stream"
+    },
+    "kitchen": {
+      "path": "kitchen", 
+      "audio_device": "default",
+      "sample_rate": 16000,
+      "channels": 1,
+      "description": "Kitchen microphone stream"
+    },
+    "living_room": {
+      "path": "living_room",
+      "audio_device": "default", 
+      "sample_rate": 16000,
+      "channels": 1,
+      "description": "Living room microphone stream"
+    },
+    "bedroom": {
+      "path": "bedroom",
+      "audio_device": "default",
+      "sample_rate": 16000,
+      "channels": 1,
+      "description": "Bedroom microphone stream"
+    }
+  },
+  "default_room": "office",
+  "audio_settings": {
+    "default_sample_rate": 16000,
+    "default_channels": 1,
+    "supported_sample_rates": [8000, 16000, 22050, 44100, 48000],
+    "rtsp_transport": "tcp"
+  }
+}
+
