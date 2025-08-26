@@ -21,7 +21,7 @@ services:
       - RTSP_SERVER_PORT=${RTSP_SERVER_PORT:-8554}
       - STREAM_PATH=mic
       - AUDIO_DEVICE=${AUDIO_DEVICE:-default}
-      - SAMPLE_RATE=${SAMPLE_RATE:-16000}
+      - SAMPLE_RATE=${SAMPLE_RATE:-8000}
       - CHANNELS=${CHANNELS:-1}
     volumes:
       - /dev/snd:/dev/snd:rw  # Audio devices

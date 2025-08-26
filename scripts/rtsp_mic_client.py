@@ -90,22 +90,36 @@ class RTSPMicClient:
     
     def build_ffmpeg_command(self) -> list:
         """Build the FFmpeg command for streaming audio to RTSP server"""
-        # Use pulseaudio input with monitor source to avoid blocking other apps
-        # This creates a copy of the audio stream without interfering with the original
+        # Use the actual device directly for better performance
+        device_input = self.audio_device
         
-        # First, try to find a monitor source for our device
-        monitor_source = f"{self.audio_device}.monitor"
+        # Prefer G.711 mu-law at 8kHz for near-zero codec delay; fall back to PCM if a different
+        # sample rate is requested.
+        use_mulaw = self.sample_rate == 8000 and self.channels == 1
         
         cmd = [
             'ffmpeg',
+            # Input: PulseAudio source with a small queue to avoid input-side backpressure
             '-f', 'pulse',
-            '-i', monitor_source,  # Use monitor source to avoid blocking
-            '-acodec', 'pcm_s16le',  # PCM 16-bit little-endian
-            '-ar', str(self.sample_rate),  # Sample rate
-            '-ac', str(self.channels),  # Number of channels
+            '-thread_queue_size', '1024',
+            '-i', device_input,
+            # Audio settings
+            '-ac', str(self.channels),
+            '-ar', str(self.sample_rate),
+            '-c:a', 'pcm_mulaw' if use_mulaw else 'pcm_s16le',
+            # Minimize internal buffering and use wallclock timestamps
+            '-use_wallclock_as_timestamps', '1',
+            '-reorder_queue_size', '0',
+            '-max_delay', '0',
+            '-probesize', '32',
+            '-analyzeduration', '0',
+            # Output: RTSP over UDP with low-latency flags
             '-f', 'rtsp',
-            '-rtsp_transport', 'tcp',  # Use TCP for better reliability
-            '-loglevel', 'error',  # Reduce log noise
+            '-rtsp_transport', 'udp',
+            '-flags', 'low_delay',
+            '-flush_packets', '1',
+            '-max_interleave_delta', '0',
+            '-loglevel', 'error',
             f'rtsp://{self.rtsp_server_ip}:{self.rtsp_server_port}/{self.stream_path}'
         ]
         

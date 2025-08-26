@@ -128,20 +128,33 @@ class DockerRTSPMicClient:
         # Otherwise, use the device name directly (e.g., 'default' or 'alsa_input.*').
         pulse_input = self.audio_device if self.audio_device.endswith('.monitor') else self.audio_device
 
+        # Prefer G.711 mu-law at 8kHz for near-zero codec delay; fall back to PCM if a different
+        # sample rate is requested.
+        use_mulaw = self.sample_rate == 8000 and self.channels == 1
+
         cmd = [
             'ffmpeg',
+            # Input: PulseAudio source with a small queue to avoid input-side backpressure
             '-f', 'pulse',
+            '-thread_queue_size', '1024',
             '-i', pulse_input,
-            '-c:a', 'aac',
-            '-b:a', '128k',
-            '-ar', str(self.sample_rate),
+            # Audio settings
             '-ac', str(self.channels),
+            '-ar', str(self.sample_rate),
+            '-c:a', 'pcm_mulaw' if use_mulaw else 'pcm_s16le',
+            # Minimize internal buffering and use wallclock timestamps
+            '-use_wallclock_as_timestamps', '1',
+            '-reorder_queue_size', '0',
+            '-max_delay', '0',
+            '-probesize', '32',
+            '-analyzeduration', '0',
+            # Output: RTSP over UDP with low-latency flags
             '-f', 'rtsp',
-            '-rtsp_transport', 'tcp',
+            '-rtsp_transport', 'udp',
+            '-flags', 'low_delay',
+            '-flush_packets', '1',
+            '-max_interleave_delta', '0',
             '-loglevel', 'error',
-            '-reconnect', '1',
-            '-reconnect_streamed', '1',
-            '-reconnect_delay_max', '5',
             f'rtsp://{self.rtsp_server_ip}:{self.rtsp_server_port}/{self.stream_path}'
         ]
         
@@ -198,9 +211,13 @@ class DockerRTSPMicClient:
         logger.info(f"✅ Streaming to: rtsp://{self.rtsp_server_ip}:{self.rtsp_server_port}/{self.stream_path}")
         logger.info("-" * 50)
         
+        # Debug: Log the actual FFmpeg command
+        ffmpeg_cmd = self.build_ffmpeg_command()
+        logger.info(f"🔧 FFmpeg command: {' '.join(ffmpeg_cmd)}")
+        
         try:
             self.ffmpeg_process = subprocess.Popen(
-                self.build_ffmpeg_command(),
+                ffmpeg_cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 universal_newlines=True

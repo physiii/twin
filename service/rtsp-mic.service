@@ -1,0 +1,28 @@
+[Unit]
+Description=RTSP Microphone Stream - Low Latency Audio Streaming
+After=network.target sound.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=andy
+Group=andy
+WorkingDirectory=/home/andy/scripts/twin
+ExecStartPre=/bin/bash -c 'killall mediamtx 2>/dev/null || true'
+ExecStartPre=/bin/bash -c 'killall python3 2>/dev/null || true'
+ExecStart=/home/andy/scripts/twin/start_rtsp_mic.sh
+ExecStop=/bin/bash -c 'killall python3 2>/dev/null || true; killall mediamtx 2>/dev/null || true'
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Audio permissions
+SupplementaryGroups=audio pulse pulse-access
+
+# Environment for audio access
+Environment="XDG_RUNTIME_DIR=/run/user/1000"
+Environment="PULSE_SERVER=unix:/run/user/1000/pulse/native"
+
+[Install]
+WantedBy=multi-user.target

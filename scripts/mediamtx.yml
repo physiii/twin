@@ -19,7 +19,7 @@ readTimeout: 10s
 writeTimeout: 10s
 # Size of the queue of outgoing packets.
 # A higher value allows to increase throughput, a lower value allows to save RAM.
-writeQueueSize: 512
+writeQueueSize: 64
 # Maximum size of outgoing UDP packets.
 # This can be decreased to avoid fragmentation on networks with a low UDP MTU.
 udpMaxPayloadSize: 1472
@@ -221,13 +221,7 @@ playbackTrustedProxies: []
 
 # Enable publishing and reading streams with the RTSP protocol.
 rtsp: yes
-# List of enabled RTSP transport protocols.
-# UDP is the most performant, but doesn't work when there's a NAT/firewall between
-# server and clients, and doesn't support encryption.
-# UDP-multicast allows to save bandwidth when clients are all in the same LAN.
-# TCP is the most versatile, and does support encryption.
-# The handshake is always performed with TCP.
-protocols: [udp, multicast, tcp]
+protocols: [udp]
 # Encrypt handshakes and TCP streams with TLS (RTSPS).
 # Available values are "no", "strict", "optional".
 encryption: "no"

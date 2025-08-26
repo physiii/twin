@@ -220,6 +220,34 @@ pactl list short sources
 ffmpeg -f pulse -i default.monitor -f null -
 ```
 
+## ⚡ Low-Latency Mode (sub-100ms)
+
+For near real-time audio, enable these settings:
+
+- Server: `scripts/mediamtx.yml`
+  - Set `protocols: [udp]`
+  - Set `writeQueueSize: 64`
+
+- Publisher (client): `scripts/rtsp_mic_client_docker.py`
+  - Uses UDP transport and G.711 μ-law at 8 kHz when `SAMPLE_RATE=8000` and `CHANNELS=1`
+
+- Docker Compose env (client):
+  - `SAMPLE_RATE=8000`
+  - `CHANNELS=1`
+
+Rebuild and start:
+
+```bash
+docker compose build rtsp-client
+docker compose up -d rtsp-server rtsp-client
+```
+
+Test with a low-latency player:
+
+```bash
+ffplay -fflags nobuffer -flags low_delay -vn -nodisp -rtsp_transport udp -i rtsp://<server-ip>:8554/mic
+```
+
 ## 📊 Monitoring
 
 ### Health Checks
