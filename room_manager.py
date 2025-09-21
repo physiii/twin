@@ -206,6 +206,20 @@ class RoomManager:
                 info["sources"].append(source)
         
         return info
+    
+    def get_actuator_for_room(self, room: str) -> Optional[Dict]:
+        """Get actuator configuration for a specific room"""
+        actuators = self.config.get("actuator_mappings", {})
+        return actuators.get(room)
+    
+    def get_ssh_target_for_room(self, room: str) -> Optional[str]:
+        """Get SSH target for a specific room"""
+        actuator = self.get_actuator_for_room(room)
+        return actuator.get("ssh_target") if actuator else None
+    
+    def get_all_actuators(self) -> Dict[str, Dict]:
+        """Get all actuator mappings"""
+        return self.config.get("actuator_mappings", {})
 
 # Global instance
 room_manager = None

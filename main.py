@@ -36,7 +36,7 @@ handlers = [
 ]
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] [%(levelname)s] [%(filename)s] %(message)s",
+    format="%(asctime)s [%(levelname)s] [%(filename)s] %(message)s",
     handlers=handlers
 )
 
@@ -396,6 +396,156 @@ async def process_buffer(transcription_model, use_remote_transcription, remote_t
         is_awake = False
         did_inference = False
 
+async def process_rtsp_source(source_id, source_url, location, transcription_model, use_remote_transcription, remote_transcribe_url, context):
+    """Process a single RTSP source with independent transcription and location-aware actuators"""
+    global is_awake, wake_start_time, did_inference
+    
+    # Create source-specific buffers
+    source_buffer = deque(maxlen=int(SAMPLE_RATE * BUFFER_DURATION))
+    source_small_buffer = deque(maxlen=int(SAMPLE_RATE * SMALL_BUFFER_DURATION))
+    source_queue = queue.Queue()
+    source_recent_transcriptions = deque(maxlen=10)
+    source_history_buffer = deque(maxlen=HISTORY_BUFFER_SIZE)
+    
+    def source_callback(indata, frames, time_info, status):
+        """Audio callback for this specific source"""
+        audio_callback(indata, frames, time_info, status, source_queue, source_buffer, source_small_buffer)
+    
+    # Create RTSP stream for this source
+    try:
+        stream = create_rtsp_audio_stream(source_callback, rtsp_url=source_url)
+    except Exception as e:
+        logger.error(f"Failed to create stream for {source_id}: {e}")
+        return
+    
+    logger.info(f"🎙️ {source_id} processing started")
+    
+    try:
+        # Processing loop for this source
+        while True:
+            await asyncio.sleep(0.1)
+            
+            # Check if we have audio data
+            if len(source_buffer) == 0:
+                continue
+                
+            audio_data = np.array(list(source_buffer), dtype=np.float32)
+            rms = calculate_rms(audio_data)
+            
+            if rms < SILENCE_THRESHOLD:
+                continue
+            
+            # Transcribe audio from this specific source
+            transcriptions, _ = await transcribe_audio(
+                model=transcription_model,
+                audio_data=audio_data,
+                language="en",
+                similarity_threshold=SIMILARITY_THRESHOLD,
+                recent_transcriptions=source_recent_transcriptions,
+                history_buffer=source_history_buffer,
+                history_max_chars=HISTORY_MAX_CHARS,
+                use_remote=use_remote_transcription,
+                remote_url=remote_transcribe_url,
+                sample_rate=config.SAMPLE_RATE
+            )
+            
+            # Process transcriptions from this specific source
+            for text in transcriptions:
+                logger.info(f"[{source_id}] {get_timestamp()} {text}")
+                running_log.append(f"{get_timestamp()} [{source_id}] {text}")
+                
+                # Process through wake detection and inference (shared global state)
+                if is_awake and 'session_data' in context and context['session_data']:
+                    context['session_data']['after_transcriptions'].append(text)
+                    history_buffer.append(text)
+                else:
+                    recent_transcriptions.append(text)
+
+                # Wake detection and inference processing
+                text_to_process = text if is_awake else text
+                result = await process_user_text(text_to_process, context, is_awake=is_awake, force_awake=False)
+
+                # Handle wake up with location-specific actuators
+                if result["woke_up"] and not is_awake:
+                    is_awake = True
+                    wake_start_time = time.time()
+                    
+                    # Get location-specific actuator for wake actions
+                    room_manager = context["ROOM_MANAGER"]
+                    actuator = room_manager.get_actuator_for_room(location)
+                    ssh_target = actuator.get("ssh_target") if actuator else None
+                    
+                    logger.info(f"[Wake] System awake from {source_id} → using actuator: {ssh_target}")
+                    
+                    # Use location-specific SSH target for media pause and wake sound
+                    original_ssh_target = config.SSH_HOST_TARGET
+                    if ssh_target:
+                        config.SSH_HOST_TARGET = ssh_target
+                    
+                    await pause_media_players()
+                    asyncio.create_task(play_wake_sound(WAKE_SOUND_FILE))
+                    
+                    # Restore original SSH target
+                    config.SSH_HOST_TARGET = original_ssh_target
+                    
+                    context['session_data'] = {
+                        "session_id": str(uuid.uuid4()),
+                        "start_time": datetime.now().isoformat(),
+                        "before_transcriptions": list(recent_transcriptions),
+                        "after_transcriptions": [],
+                        "inferences": [],
+                        "commands_executed": [],
+                        "vectorstore_results": [],
+                        "user_feedback": [],
+                        "complete_transcription": "",
+                        "source_commands": [],
+                        "source_location": location,
+                        "actuator_target": ssh_target
+                    }
+                    recent_transcriptions.clear()
+                    continue
+
+                # Handle inference and commands when awake with location-specific actuators
+                if is_awake and result["inference_response"]:
+                    did_inference = True
+                    inference_data = result["inference_response"]
+                    
+                    if inference_data.get('commands') and context['args'].execute:
+                        # Get location-specific actuator for command execution
+                        room_manager = context["ROOM_MANAGER"]
+                        actuator = room_manager.get_actuator_for_room(location)
+                        ssh_target = actuator.get("ssh_target") if actuator else None
+                        
+                        logger.info(f"[Execute] Running commands from {source_id} → {ssh_target}: {inference_data['commands']}")
+                        
+                        # Temporarily override SSH target for this command execution
+                        original_ssh_target = config.SSH_HOST_TARGET
+                        if ssh_target:
+                            config.SSH_HOST_TARGET = ssh_target
+                        
+                        await execute_commands(
+                            commands=inference_data['commands'],
+                            context_or_cooldown=context,
+                            requires_confirmation=inference_data.get('confirmed', False),
+                            risk_level=inference_data.get('risk', 0.5),
+                            self_text=result.get("self_text", "")
+                        )
+                        
+                        # Restore original SSH target
+                        config.SSH_HOST_TARGET = original_ssh_target
+                    
+                    wake_start_time = time.time()
+                elif is_awake:
+                    wake_start_time = time.time()
+    
+    except Exception as e:
+        logger.error(f"Error in {source_id} processing: {e}")
+    finally:
+        # Clean up this source's stream
+        if stream and hasattr(stream, 'stop'):
+            stream.stop()
+        logger.info(f"🛑 {source_id} processing stopped")
+
 async def main():
     # Debug the SSH target value as read from config
     logger.info(f"*** STARTUP INFO: SSH_HOST_TARGET = '{config.SSH_HOST_TARGET}' ***")
@@ -479,16 +629,42 @@ async def main():
         else init_transcription_model(args.whisper_model, DEVICE_TYPE, COMPUTE_TYPE)
     )
 
-    # Determine location based on audio source
-    if config.AUDIO_SOURCE.lower() == 'rtsp':
-        current_source = config.RTSP_URL
-    else:
-        current_source = args.source or input_device
-    
-    # Get room manager and detect location for this source
+    # Get room manager first
     room_manager = get_room_manager()
-    detected_location = room_manager.get_location_from_source(str(current_source))
-    logger.info(f"🏠 Detected location: {detected_location} for source: {current_source}")
+    
+    # Get ALL available RTSP sources for multi-source monitoring
+    all_rtsp_sources = []
+    if config.AUDIO_SOURCE.lower() == 'rtsp':
+        source_mappings = room_manager.config.get("source_mappings", {})
+        for source_url, location in source_mappings.items():
+            if source_url.startswith("rtsp://"):
+                all_rtsp_sources.append({"url": source_url, "location": location})
+        
+        logger.info(f"🎯 Multi-source monitoring enabled: {len(all_rtsp_sources)} RTSP sources")
+        for source in all_rtsp_sources:
+            if "192.168.1.200" in source["url"]:
+                source_id = f"office-cam@192.168.1.200"
+            elif "192.168.1.43" in source["url"]:
+                source_id = f"office-desktop@192.168.1.43"
+            elif "192.168.1.101" in source["url"]:
+                source_id = f"kitchen@192.168.1.101"
+            elif "192.168.1.102" in source["url"]:
+                source_id = f"living_room@192.168.1.102"
+            elif "192.168.1.103" in source["url"]:
+                source_id = f"bedroom@192.168.1.103"
+            else:
+                source_id = f"{source['location']}@{source['url'].split('://')[1].split(':')[0]}"
+            logger.info(f"   📡 {source_id}: {source['url']} → {source['location']}")
+        
+        # Use first source for primary context (backwards compatibility)
+        current_source = all_rtsp_sources[0]["url"]
+        detected_location = all_rtsp_sources[0]["location"]
+    else:
+        # For microphone input (single source)
+        current_source = args.source or input_device
+        detected_location = room_manager.get_location_from_source(str(current_source))
+        logger.info(f"🏠 Detected location: {detected_location} for source: {current_source}")
+        all_rtsp_sources = [{"url": current_source, "location": detected_location}]
 
     context = {
         "REMOTE_STORE_URL": REMOTE_STORE_URL,
@@ -509,6 +685,7 @@ async def main():
         "DETECTED_LOCATION": detected_location,
         "AUDIO_SOURCE": current_source,
         "ROOM_MANAGER": room_manager,
+        "ALL_RTSP_SOURCES": all_rtsp_sources,
     }
 
     os.makedirs(context['QC_REPORT_DIR'], exist_ok=True)
@@ -516,15 +693,61 @@ async def main():
 
     try:
         # Choose audio source based on configuration
-        if config.AUDIO_SOURCE.lower() == 'rtsp':
-            logger.info(f"Using RTSP audio source: {config.RTSP_URL}")
-            # Create RTSP audio stream with the same callback interface
-            audio_stream = create_rtsp_audio_stream(
-                lambda indata, frames, time_info, status: audio_callback(
-                    indata, frames, time_info, status, audio_queue, audio_buffer, small_audio_buffer
+        if config.AUDIO_SOURCE.lower() == 'rtsp' and all_rtsp_sources:
+            logger.info(f"🎙️ Starting multi-source RTSP monitoring for {len(all_rtsp_sources)} sources...")
+            
+            # Create per-source processing tasks
+            source_tasks = []
+            for source in all_rtsp_sources:
+                source_url = source["url"]
+                location = source["location"]
+                
+                # Extract identifier for logging
+                if "192.168.1.200" in source_url:
+                    source_id = f"office-cam@192.168.1.200"
+                elif "192.168.1.43" in source_url:
+                    source_id = f"office-desktop@192.168.1.43"
+                elif "192.168.1.101" in source_url:
+                    source_id = f"kitchen@192.168.1.101"
+                elif "192.168.1.102" in source_url:
+                    source_id = f"living_room@192.168.1.102"
+                elif "192.168.1.103" in source_url:
+                    source_id = f"bedroom@192.168.1.103"
+                else:
+                    source_id = f"{location}@{source_url.split('://')[1].split(':')[0]}"
+                
+                logger.info(f"   📡 Starting {source_id}")
+                
+                # Create per-source processing task
+                task = asyncio.create_task(
+                    process_rtsp_source(
+                        source_id, source_url, location,
+                        transcription_model, use_remote_transcription, REMOTE_TRANSCRIBE_URL,
+                        context
+                    )
                 )
+                source_tasks.append(task)
+                logger.info(f"   ✅ {source_id} active")
+            
+            logger.info(f"✅ Multi-source monitoring: {len(source_tasks)} sources active")
+            
+            # Log active configuration
+            inference_type = (
+                f"remote inference ({REMOTE_INFERENCE_URL})"
+                if REMOTE_INFERENCE_URL
+                else "Local inference"
             )
-            # No need for a context manager with the RTSP stream
+            transcription_type = (
+                f"remote ({REMOTE_TRANSCRIBE_URL})"
+                if use_remote_transcription
+                else f"local ({args.whisper_model})"
+            )
+            logger.info(
+                f"Using {inference_type} for inference, and {transcription_type} for transcription."
+            )
+            
+            # Wait for all source processing tasks
+            await asyncio.gather(*source_tasks, return_exceptions=True)
         else:
             # Use traditional microphone input with sounddevice
             logger.info(f"Using microphone audio input device: {input_device}")
@@ -539,28 +762,15 @@ async def main():
                 dtype="float32",
             )
             audio_stream.start()
-
-        # Log active configuration
-        inference_type = (
-            f"remote inference ({REMOTE_INFERENCE_URL})"
-            if REMOTE_INFERENCE_URL
-            else "Local inference"
-        )
-        transcription_type = (
-            f"remote ({REMOTE_TRANSCRIBE_URL})"
-            if use_remote_transcription
-            else f"local ({args.whisper_model})"
-        )
-        logger.info(
-            f"Using {inference_type} for inference, and {transcription_type} for transcription."
-        )
-        while True:
-            await process_buffer(
-                transcription_model,
-                use_remote_transcription,
-                REMOTE_TRANSCRIBE_URL,
-                context,
-            )
+            
+            # Use the original single-source processing
+            while True:
+                await process_buffer(
+                    transcription_model,
+                    use_remote_transcription,
+                    REMOTE_TRANSCRIBE_URL,
+                    context,
+                )
     except KeyboardInterrupt:
         logger.info("Streaming stopped.")
     except Exception as e:

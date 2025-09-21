@@ -204,12 +204,12 @@ class RTSPAudioCapture:
         self._cleanup()
         logger.info("RTSP audio capture stopped")
 
-def create_rtsp_audio_stream(callback_func):
+def create_rtsp_audio_stream(callback_func, rtsp_url=None):
     """
     Create an RTSP audio stream with the specified callback.
     This mimics the sounddevice.InputStream interface for easy integration.
     """
-    rtsp_url = config.RTSP_URL
+    rtsp_url = rtsp_url or config.RTSP_URL
     sample_rate = config.SAMPLE_RATE
     channels = config.CHANNELS
     chunk_size = config.CHUNK_SIZE
