@@ -36,7 +36,7 @@ handlers = [
 ]
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] [%(filename)s] %(message)s",
+    format="%(asctime)s [%(filename)s] %(message)s",
     handlers=handlers
 )
 
