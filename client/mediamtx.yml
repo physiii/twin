@@ -232,7 +232,7 @@ protocols: [tcp]
 # Available values are "no", "strict", "optional".
 encryption: "no"
 # Address of the TCP/RTSP listener. This is needed only when encryption is "no" or "optional".
-rtspAddress: :554
+rtspAddress: :8554
 # Address of the TCP/TLS/RTSPS listener. This is needed only when encryption is "strict" or "optional".
 rtspsAddress: :8322
 # Address of the UDP/RTP listener. This is needed only when "udp" is in protocols.
@@ -260,7 +260,7 @@ rtspAuthMethods: [basic]
 # Global settings -> RTMP server
 
 # Enable publishing and reading streams with the RTMP protocol.
-rtmp: yes
+rtmp: no
 # Address of the RTMP listener. This is needed only when encryption is "no" or "optional".
 rtmpAddress: :1935
 # Encrypt connections with TLS (RTMPS).
@@ -280,7 +280,7 @@ rtmpServerCert: server.crt
 # Global settings -> HLS server
 
 # Enable reading streams with the HLS protocol.
-hls: yes
+hls: no
 # Address of the HLS listener.
 hlsAddress: :8888
 # Enable TLS/HTTPS on the HLS server.
@@ -339,7 +339,7 @@ hlsMuxerCloseAfter: 60s
 # Global settings -> WebRTC server
 
 # Enable publishing and reading streams with the WebRTC protocol.
-webrtc: yes
+webrtc: no
 # Address of the WebRTC HTTP listener.
 webrtcAddress: :8889
 # Enable TLS/HTTPS on the WebRTC server.
@@ -392,7 +392,7 @@ webrtcTrackGatherTimeout: 2s
 # Global settings -> SRT server
 
 # Enable publishing and reading streams with the SRT protocol.
-srt: yes
+srt: no
 # Address of the SRT listener.
 srtAddress: :8890
 
@@ -703,3 +703,8 @@ paths:
   # Settings under path "all_others" are applied to all paths that
   # do not match another entry.
   all_others:
+  mic:
+    runOnDemand: ffmpeg -hide_banner -nostdin -loglevel error -f pulse -i default -t 20 -c:a aac -b:a 96k -ar 16000 -ac 1 -f rtsp -rtsp_transport tcp rtsp://127.0.0.1:554/mic
+    runOnDemandRestart: yes
+    runOnDemandStartTimeout: 10s
+    runOnDemandCloseAfter: 1s
