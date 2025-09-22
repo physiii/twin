@@ -52,7 +52,7 @@ def main():
 
     # Verify server is running
     if not port_listening(554):
-        print("RTSP server not listening on 554. Start it with client/start.sh")
+        print("RTSP server not listening on 554. Start it with client/run.py (sudo required) or enable the service with install.sh")
         sys.exit(1)
 
     # Detect LAN IP for second playback

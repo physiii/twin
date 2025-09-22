@@ -3,8 +3,7 @@ set -euo pipefail
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 BIN="$DIR/mediamtx"
 PORT=554
-UNIT_DIR="$HOME/.config/systemd/user"
-UNIT_FILE="$UNIT_DIR/rtsp-server.service"
+SYS_UNIT_FILE="/etc/systemd/system/rtsp-server.service"
 
 echo "Installing dependencies..."
 sudo apt update
@@ -27,13 +26,14 @@ if lsof -i :$PORT -sTCP:LISTEN -Pn >/dev/null 2>&1; then
 	sudo fuser -k ${PORT}/tcp || true
 fi
 
-echo "Install complete. Use $DIR/start.sh to start the server."
-echo "\nConfiguring user-level systemd service (rtsp-server.service)..."
-mkdir -p "$UNIT_DIR"
-cat > "$UNIT_FILE" <<EOU
+echo "Install complete. Use $DIR/run.py for a foreground run."
+
+echo "\nConfiguring system service (requires sudo): $SYS_UNIT_FILE"
+sudo bash -c "cat > '$SYS_UNIT_FILE'" <<EOU
 [Unit]
-Description=MediaMTX RTSP Server (user)
-After=default.target
+Description=MediaMTX RTSP Server
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -44,9 +44,12 @@ RestartSec=3
 Environment=PYTHONUNBUFFERED=1
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
 EOU
 
-systemctl --user daemon-reload
-systemctl --user enable --now rtsp-server.service
-echo "Service enabled. Use: systemctl --user status rtsp-server.service"
+# Disable any lingering user service with same name
+systemctl --user disable --now rtsp-server.service 2>/dev/null || true
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now rtsp-server.service
+echo "System service enabled. Use: sudo systemctl status rtsp-server.service"
