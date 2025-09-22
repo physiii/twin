@@ -1,4 +1,0 @@
-rtspAddress: :554
-paths:
-  mic:
-    source: publisher
