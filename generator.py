@@ -194,17 +194,32 @@ async def process_user_text(
             window = " ".join(words[i : i + window_size])
             wake_results, _ = await run_search(window, "wake", remote_store_url=REMOTE_STORE_URL)
             relevant_wake = [r for r in wake_results if r[1] < WAKE_DISTANCE_THRESHOLD]
+            
+            logger.debug(f"[generator] Wake detection for window '{window}': vector_results={len(wake_results)}, relevant_wake={len(relevant_wake)}")
+            if wake_results:
+                logger.debug(f"[generator] Best wake match: '{wake_results[0][0]}' with distance {wake_results[0][1]:.3f} (threshold: {WAKE_DISTANCE_THRESHOLD})")
 
             fuzzy_matches = []
-            for phrase in WAKE_PHRASES:
-                similarity = fuzz.token_set_ratio(window, phrase)
-                if similarity >= FUZZY_SIMILARITY_THRESHOLD:
-                    fuzzy_matches.append((phrase, similarity))
+            try:
+                for phrase in WAKE_PHRASES:
+                    similarity = fuzz.token_set_ratio(window, phrase)
+                    if similarity >= FUZZY_SIMILARITY_THRESHOLD:
+                        fuzzy_matches.append((phrase, similarity))
+            except Exception as e:
+                logger.warning(f"[generator] Fuzzy matching failed: {e}. Using fallback matching.")
+                # Fallback to simple case-insensitive matching
+                for phrase in WAKE_PHRASES:
+                    if window.lower().strip() in phrase.lower() or phrase.lower().strip() in window.lower():
+                        fuzzy_matches.append((phrase, 100))  # High similarity for exact matches
 
-            if relevant_wake and fuzzy_matches:
+            # Wake up if either vector search OR fuzzy matching succeeds (not both required)
+            if relevant_wake or fuzzy_matches:
+                logger.info(f"[generator] Wake phrase detected! Window: '{window}', Vector matches: {len(relevant_wake)}, Fuzzy matches: {len(fuzzy_matches)}")
                 response["woke_up"] = True
                 woke = True
                 break
+            else:
+                logger.debug(f"[generator] No wake match for window '{window}'")
 
         # If we did not wake up, return without inference
         if not woke:

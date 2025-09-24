@@ -5,12 +5,9 @@
     "sync_rooms": true
   },
   "source_mappings": {
-    "http://192.168.1.150:8555": "living_room",
     "rtsp://admin:Qweasdzxc1@192.168.1.200:554/cam/realmonitor?channel=1&subtype=0": "office",
     "rtsp://192.168.1.43:554/mic": "office",
     "rtsp://192.168.1.120:554/mic": "living_room",
-    "rtsp://192.168.1.101:554/audio": "kitchen", 
-    "rtsp://192.168.1.103:554/audio": "bedroom",
     "device_13": "office",
     "device_14": "kitchen",
     "pulse": "office"
@@ -59,20 +56,10 @@
       "display": ":0",
       "capabilities": ["audio", "media_control", "screenshots", "shell_commands"]
     },
-    "kitchen": {
-      "ssh_target": "andy@192.168.1.101", 
-      "display": ":0",
-      "capabilities": ["audio", "media_control"]
-    },
     "living_room": {
       "ssh_target": "andy@192.168.1.120",
       "display": ":0", 
       "capabilities": ["audio", "media_control", "screenshots", "shell_commands"]
-    },
-    "bedroom": {
-      "ssh_target": "andy@192.168.1.103",
-      "display": ":0",
-      "capabilities": ["audio"]
     }
   },
   "default_location": "office"
