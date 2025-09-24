@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
+import os
+os.environ['MPLCONFIGDIR'] = '/tmp/matplotlib_config'
 import numpy as np
 import sounddevice as sd
 import wavio
-import os
 import matplotlib.pyplot as plt
 
 SAMPLE_RATE = 16000
 DURATION = 5  # seconds
-OUTPUT_DIR = "/home/twin"
+OUTPUT_DIR = "/tmp/twin_test"
 
 # Create output directory if it doesn't exist
 os.makedirs(OUTPUT_DIR, exist_ok=True)
