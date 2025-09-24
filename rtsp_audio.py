@@ -23,7 +23,8 @@ class RTSPAudioCapture:
         channels=1,
         chunk_size=1024,
         buffer_size=144000,  # 3 seconds at 48kHz
-        latency_flags=None
+        latency_flags=None,
+        reconnect_interval=20  # seconds
     ):
         self.rtsp_url = rtsp_url
         self.sample_rate = sample_rate
@@ -37,6 +38,9 @@ class RTSPAudioCapture:
         self.callback_thread = None
         self.user_callback = None
         self.latency_flags = latency_flags or []
+        self.reconnect_interval = reconnect_interval
+        self.connection_failures = 0
+        self.last_reconnect_attempt = 0
         
     def _build_ffmpeg_command(self):
         """Build the FFmpeg command to extract audio from RTSP stream"""
@@ -68,70 +72,100 @@ class RTSPAudioCapture:
         return cmd
         
     def _capture_audio(self):
-        """Capture audio from FFmpeg and put in queue"""
-        cmd = self._build_ffmpeg_command()
-        
-        try:
-            logger.info(f"Starting FFmpeg process with command: {' '.join(cmd)}")
-            self.process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                bufsize=self.chunk_size * 4  # 4 bytes per float32 sample
-            )
-            
-            logger.info("Started FFmpeg RTSP audio capture process")
-            
-            # Start a thread to log stderr from FFmpeg
-            def log_stderr():
-                for line in iter(self.process.stderr.readline, b''):
-                    stderr_line = line.decode('utf-8', errors='replace').strip()
-                    if stderr_line:
-                        logger.debug(f"FFmpeg: {stderr_line}")
-            
-            stderr_thread = threading.Thread(target=log_stderr)
-            stderr_thread.daemon = True
-            stderr_thread.start()
-            
-            # Read audio data in chunks
-            bytes_per_chunk = self.chunk_size * self.channels * 4  # 4 bytes per float32 sample
-            
-            while self.is_running:
-                try:
-                    # Read a chunk of audio data
-                    audio_chunk = self.process.stdout.read(bytes_per_chunk)
-                    
-                    if not audio_chunk:
-                        logger.warning("End of RTSP stream or error. Restarting in 2 seconds...")
-                        # Log FFmpeg return code
-                        if self.process.poll() is not None:
-                            logger.error(f"FFmpeg process exited with code {self.process.poll()}")
-                        time.sleep(2)
-                        break
-                    
-                    # Convert to numpy array of float32
-                    audio_array = np.frombuffer(audio_chunk, dtype=np.float32)
-                    
-                    # Log audio data stats occasionally
-                    if hasattr(self, 'log_counter'):
-                        self.log_counter += 1
-                    else:
-                        self.log_counter = 0
+        """Capture audio from FFmpeg and put in queue with reconnection logic"""
+        while self.is_running:
+            try:
+                # Check if we should attempt reconnection
+                current_time = time.time()
+                if self.connection_failures > 0 and (current_time - self.last_reconnect_attempt) < self.reconnect_interval:
+                    time.sleep(1)
+                    continue
+                
+                cmd = self._build_ffmpeg_command()
+                
+                logger.info(f"Starting FFmpeg process with command: {' '.join(cmd)}")
+                self.process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    bufsize=self.chunk_size * 4  # 4 bytes per float32 sample
+                )
+                
+                logger.info("Started FFmpeg RTSP audio capture process")
+                
+                # Start a thread to log stderr from FFmpeg
+                def log_stderr():
+                    for line in iter(self.process.stderr.readline, b''):
+                        stderr_line = line.decode('utf-8', errors='replace').strip()
+                        if stderr_line:
+                            logger.debug(f"FFmpeg: {stderr_line}")
+                
+                stderr_thread = threading.Thread(target=log_stderr)
+                stderr_thread.daemon = True
+                stderr_thread.start()
+
+                # Read audio data in chunks
+                bytes_per_chunk = self.chunk_size * self.channels * 4  # 4 bytes per float32 sample
+                connection_successful = False
+                
+                while self.is_running:
+                    try:
+                        # Read a chunk of audio data
+                        audio_chunk = self.process.stdout.read(bytes_per_chunk)
                         
-                    # if self.log_counter % 100 == 0:  # Log every 100 chunks
-                    #     logger.info(f"RTSP audio stats: min={np.min(audio_array):.4f}, max={np.max(audio_array):.4f}, mean={np.mean(audio_array):.4f}, shape={audio_array.shape}")
-                    
-                    # Put in the queue for the callback thread
-                    self.audio_queue.put(audio_array)
-                    
-                except Exception as e:
-                    logger.error(f"Error reading RTSP audio: {e}")
-                    time.sleep(0.5)
-                    
-        except Exception as e:
-            logger.error(f"Error starting FFmpeg process: {e}")
-        finally:
-            self._cleanup()
+                        if not audio_chunk:
+                            logger.warning(f"End of RTSP stream or connection lost for {self.rtsp_url}")
+                            # Log FFmpeg return code
+                            if self.process.poll() is not None:
+                                logger.error(f"FFmpeg process exited with code {self.process.poll()}")
+                            break
+                        
+                        # If we got data, connection is working
+                        if not connection_successful:
+                            connection_successful = True
+                            self.connection_failures = 0
+                            logger.info(f"RTSP connection established successfully for {self.rtsp_url}")
+                        
+                        # Convert to numpy array of float32
+                        audio_array = np.frombuffer(audio_chunk, dtype=np.float32)
+                        
+                        # Log audio data stats occasionally
+                        if hasattr(self, 'log_counter'):
+                            self.log_counter += 1
+                        else:
+                            self.log_counter = 0
+                            
+                        # if self.log_counter % 100 == 0:  # Log every 100 chunks
+                        #     logger.info(f"RTSP audio stats: min={np.min(audio_array):.4f}, max={np.max(audio_array):.4f}, mean={np.mean(audio_array):.4f}, shape={audio_array.shape}")
+                        
+                        # Put in the queue for the callback thread
+                        self.audio_queue.put(audio_array)
+                        
+                    except Exception as e:
+                        logger.error(f"Error reading RTSP audio from {self.rtsp_url}: {e}")
+                        time.sleep(0.5)
+                        break
+                
+                # Connection failed or ended
+                if not connection_successful:
+                    self.connection_failures += 1
+                    self.last_reconnect_attempt = time.time()
+                    logger.warning(f"RTSP connection failed for {self.rtsp_url} (failure #{self.connection_failures}). Reconnecting in {self.reconnect_interval} seconds...")
+                else:
+                    # Connection was working but lost
+                    self.connection_failures += 1
+                    self.last_reconnect_attempt = time.time()
+                    logger.warning(f"RTSP connection lost for {self.rtsp_url}. Reconnecting in {self.reconnect_interval} seconds...")
+                
+                self._cleanup()
+                
+            except Exception as e:
+                self.connection_failures += 1
+                self.last_reconnect_attempt = time.time()
+                logger.error(f"Error starting FFmpeg process for {self.rtsp_url}: {e}. Reconnecting in {self.reconnect_interval} seconds...")
+                self._cleanup()
+                
+        logger.info(f"RTSP capture stopped for {self.rtsp_url}")
             
     def _callback_processor(self):
         """Process audio chunks and call the user callback"""
@@ -204,7 +238,7 @@ class RTSPAudioCapture:
         self._cleanup()
         logger.info("RTSP audio capture stopped")
 
-def create_rtsp_audio_stream(callback_func, rtsp_url=None):
+def create_rtsp_audio_stream(callback_func, rtsp_url=None, reconnect_interval=None):
     """
     Create an RTSP audio stream with the specified callback.
     This mimics the sounddevice.InputStream interface for easy integration.
@@ -214,15 +248,17 @@ def create_rtsp_audio_stream(callback_func, rtsp_url=None):
     channels = config.CHANNELS
     chunk_size = config.CHUNK_SIZE
     latency_flags = config.RTSP_LATENCY_FLAGS
+    reconnect_interval = reconnect_interval or config.RTSP_RECONNECT_INTERVAL
     
-    logger.info(f"Creating RTSP audio capture with URL: {rtsp_url}")
+    logger.info(f"Creating RTSP audio capture with URL: {rtsp_url} (reconnect interval: {reconnect_interval}s)")
     
     stream = RTSPAudioCapture(
         rtsp_url=rtsp_url,
         sample_rate=sample_rate,
         channels=channels,
         chunk_size=chunk_size,
-        latency_flags=latency_flags
+        latency_flags=latency_flags,
+        reconnect_interval=reconnect_interval
     )
     
     stream.start(callback_func)

@@ -411,19 +411,47 @@ async def process_rtsp_source(source_id, source_url, location, transcription_mod
         """Audio callback for this specific source"""
         audio_callback(indata, frames, time_info, status, source_queue, source_buffer, source_small_buffer)
     
-    # Create RTSP stream for this source
-    try:
-        stream = create_rtsp_audio_stream(source_callback, rtsp_url=source_url)
-    except Exception as e:
-        logger.error(f"Failed to create stream for {source_id}: {e}")
-        return
-    
     logger.info(f"🎙️ {source_id} processing started")
     
+    # Main processing loop with stream reconnection handling
+    stream = None
+    stream_reconnect_interval = config.RTSP_RECONNECT_INTERVAL
+    last_stream_creation = 0
+    stream_creation_failures = 0
+    
     try:
-        # Processing loop for this source
         while True:
+            # Create or recreate RTSP stream if needed
+            if stream is None:
+                current_time = time.time()
+                
+                # Check if we should wait before attempting reconnection
+                if stream_creation_failures > 0 and (current_time - last_stream_creation) < stream_reconnect_interval:
+                    await asyncio.sleep(1)
+                    continue
+                
+                try:
+                    logger.info(f"Creating RTSP stream for {source_id}: {source_url}")
+                    stream = create_rtsp_audio_stream(source_callback, rtsp_url=source_url)
+                    stream_creation_failures = 0
+                    last_stream_creation = current_time
+                    logger.info(f"✅ RTSP stream created successfully for {source_id}")
+                except Exception as e:
+                    stream_creation_failures += 1
+                    last_stream_creation = current_time
+                    logger.error(f"Failed to create stream for {source_id} (attempt #{stream_creation_failures}): {e}")
+                    stream = None
+                    await asyncio.sleep(1)
+                    continue
             await asyncio.sleep(0.1)
+            
+            # Check if stream is still running
+            if stream and hasattr(stream, 'is_running') and not stream.is_running:
+                logger.warning(f"Stream for {source_id} is no longer running, will recreate")
+                if hasattr(stream, 'stop'):
+                    stream.stop()
+                stream = None
+                continue
             
             # Check if we have audio data
             if len(source_buffer) == 0:

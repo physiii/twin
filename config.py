@@ -30,6 +30,7 @@ AUDIO_SOURCE = os.getenv('AUDIO_SOURCE', 'microphone')
 RTSP_URL = os.getenv('RTSP_URL', '')
 RTSP_LATENCY_FLAGS = os.getenv('RTSP_LATENCY_FLAGS', '')
 RTSP_AUDIO_CODEC = os.getenv('RTSP_AUDIO_CODEC', 'aac')
+RTSP_RECONNECT_INTERVAL = int(os.getenv('RTSP_RECONNECT_INTERVAL', '20'))  # seconds
 
 # Transcription settings
 LANGUAGE = os.getenv('LANGUAGE', 'en')
@@ -94,6 +95,7 @@ def get_config_dict():
         "RTSP_URL": RTSP_URL,
         "RTSP_LATENCY_FLAGS": RTSP_LATENCY_FLAGS,
         "RTSP_AUDIO_CODEC": RTSP_AUDIO_CODEC,
+        "RTSP_RECONNECT_INTERVAL": RTSP_RECONNECT_INTERVAL,
         "LANGUAGE": LANGUAGE,
         "SIMILARITY_THRESHOLD": SIMILARITY_THRESHOLD,
         "RISK_THRESHOLD": RISK_THRESHOLD,
