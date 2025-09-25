@@ -30,7 +30,7 @@ def load_rooms():
     """
     Load room definitions from rooms.json.
     """
-    with open('/media/mass/scripts/twin/tools/lights/rooms.json', 'r') as f:
+    with open('tools/lights/rooms.json', 'r') as f:
         data = json.load(f)
     return data.get("rooms", [])
 

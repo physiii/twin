@@ -1,0 +1,18 @@
+# Development overrides for docker-compose
+# This file is automatically loaded by docker-compose
+services:
+  twin:
+    # Mount source code for development
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./reports:/app/reports
+      - ./logs:/app/logs
+    
+    # Enable development mode with more verbose logging
+    environment:
+      - LOG_LEVEL=DEBUG
+    
+    # Override command for development if needed
+    # command: ["python", "main.py", "-e", "--source", "pulse"]

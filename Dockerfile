@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pulseaudio-utils \
     playerctl \
     openssh-client \
+    dbus-x11 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the requirements file into the container
@@ -29,9 +30,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy SSH key for remote host commands
 RUN mkdir -p /root/.ssh && chmod 700 /root/.ssh
-# Make sure the source path ./container_ssh_keys/id_ed25519_twin is correct
-COPY ./container_ssh_keys/id_ed25519_twin /root/.ssh/id_ed25519
-RUN chmod 600 /root/.ssh/id_ed25519
+# Copy SSH key from deployment directory and fix permissions
+COPY ./deployment/container_ssh_keys/id_ed25519_twin /root/.ssh/id_ed25519
+RUN chmod 600 /root/.ssh/id_ed25519 && \
+    echo "Host *" >> /root/.ssh/config && \
+    echo "    StrictHostKeyChecking no" >> /root/.ssh/config && \
+    chmod 600 /root/.ssh/config
 
 # Copy the rest of the application code into the container
 COPY . .
