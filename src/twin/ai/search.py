@@ -45,7 +45,7 @@ async def run_search(text, collection_name, remote_store_url):
     logger.debug(f"Making search request to URL: {base_url}")
     logger.debug(f"With payload: {json.dumps(search_payload)}")
 
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2.0)) as session:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10.0, connect=5.0)) as session:
         try:
             async with session.post(base_url, headers=headers, json=search_payload) as response:
                 if response.status == 200:
@@ -57,6 +57,12 @@ async def run_search(text, collection_name, remote_store_url):
                     response_text = await response.text()
                     logger.error(f"Response text: {response_text}")
                     result = []
+        except asyncio.TimeoutError:
+            logger.warning(f"Search request timed out for query: '{text}' to {base_url}")
+            result = []
+        except aiohttp.ClientError as e:
+            logger.warning(f"Client error during search API call: {str(e)}")
+            result = []
         except Exception as e:
             import traceback
             logger.error(f"Exception during API call: {str(e)}")
